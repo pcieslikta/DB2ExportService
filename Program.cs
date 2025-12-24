@@ -39,6 +39,7 @@ try
 
     // Rejestracja serwisów
     builder.Services.AddSingleton<ConfigurationHelper>();
+    builder.Services.AddSingleton<ResiliencePolicyService>();
     builder.Services.AddSingleton<IDB2Service, DB2Service>();
     builder.Services.AddSingleton<ChangeDetectionService>();
     builder.Services.AddSingleton<ExportService>();

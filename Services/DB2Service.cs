@@ -12,12 +12,14 @@ public class DB2Service : IDB2Service
     private readonly ConfigurationHelper _configHelper;
     private readonly ILogger<DB2Service> _logger;
     private readonly DB2Config _db2Config;
+    private readonly ResiliencePolicyService _resiliencePolicy;
 
-    public DB2Service(ConfigurationHelper configHelper, ILogger<DB2Service> logger)
+    public DB2Service(ConfigurationHelper configHelper, ILogger<DB2Service> logger, ResiliencePolicyService resiliencePolicy)
     {
         _configHelper = configHelper;
         _logger = logger;
         _db2Config = _configHelper.GetDB2Config();
+        _resiliencePolicy = resiliencePolicy;
     }
 
     private DB2Connection CreateConnection()
@@ -40,7 +42,7 @@ public class DB2Service : IDB2Service
 
     public async Task<int?> GetRecordCountAsync(DateTime targetDate)
     {
-        try
+        return await _resiliencePolicy.ExecuteDbOperationAsync(async () =>
         {
             using var connection = CreateConnection();
             var sql = @"SELECT DT_KARTY, COUNT(1) AS ILE
@@ -58,22 +60,17 @@ public class DB2Service : IDB2Service
             {
                 var count = reader.GetInt32(reader.GetOrdinal("ILE"));
                 _logger.LogInformation("Liczba rekordów dla dnia {Date}: {Count}", targetDate.ToString("yyyy-MM-dd"), count);
-                return count;
+                return (int?)count;
             }
 
             _logger.LogWarning("Brak rekordów dla dnia: {Date}", targetDate.ToString("yyyy-MM-dd"));
             return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Błąd podczas sprawdzania liczby rekordów dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-            throw;
-        }
+        }, $"GetRecordCount-{targetDate:yyyy-MM-dd}");
     }
 
     public async Task<List<BramkiData>> GetBramkiDataAsync(DateTime targetDate, VehicleConfig vehicleConfig)
     {
-        try
+        return await _resiliencePolicy.ExecuteDbOperationAsync(async () =>
         {
             using var connection = CreateConnection();
 
@@ -135,17 +132,12 @@ public class DB2Service : IDB2Service
 
             _logger.LogInformation("Pobrano {Count} wierszy z tabeli BRAMKI", result.Count);
             return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Błąd podczas pobierania danych BRAMKI dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-            throw;
-        }
+        }, $"GetBramkiData-{targetDate:yyyy-MM-dd}");
     }
 
     public async Task<List<BramkiDetailData>> GetBramkiDetailDataAsync(DateTime targetDate, VehicleConfig vehicleConfig)
     {
-        try
+        return await _resiliencePolicy.ExecuteDbOperationAsync(async () =>
         {
             using var connection = CreateConnection();
 
@@ -231,12 +223,7 @@ public class DB2Service : IDB2Service
 
             _logger.LogInformation("Pobrano {Count} wierszy z tabeli BRAMKID", result.Count);
             return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Błąd podczas pobierania danych BRAMKID dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-            throw;
-        }
+        }, $"GetBramkiDetailData-{targetDate:yyyy-MM-dd}");
     }
 
     private string BuildVehicleCondition(VehicleConfig config)

@@ -7,6 +7,30 @@ public class ExportConfig
     public string LogPath { get; set; } = "C:\\EXPORT\\LOG\\";
     public string ScheduleTime { get; set; } = "13:15";
     public int DaysBack { get; set; } = -2;
+
+    // File management
+    public bool EnableZipCompression { get; set; } = true;
+    public int FileRetentionDays { get; set; } = 90; // Kasuj pliki starsze niż 90 dni
+    public bool EnableAutoArchiving { get; set; } = true;
+    public string? ArchivePath { get; set; } // Jeśli null, użyj ExportPath/archive
+
+    // Performance
+    public int MaxParallelTasks { get; set; } = 3;
+    public int BatchSize { get; set; } = 1000;
+
+    // Resilience (Polly)
+    public int RetryCount { get; set; } = 3;
+    public int RetryDelaySeconds { get; set; } = 5;
+    public int CircuitBreakerFailureThreshold { get; set; } = 5;
+    public int CircuitBreakerDurationSeconds { get; set; } = 60;
+
+    // Monitoring
+    public bool EnableDetailedLogging { get; set; } = true;
+    public bool EnableMetrics { get; set; } = true;
+
+    // Notifications
+    public bool EnableEmailNotifications { get; set; } = false;
+    public string? NotificationEmail { get; set; }
 }
 
 public class DB2Config
