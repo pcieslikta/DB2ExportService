@@ -1,0 +1,31 @@
+## .NET Core
+bin/
+obj/
+publish/
+*.user
+*.suo
+*.cache
+*.dll
+*.pdb
+*.exe
+!Scripts/*.bat
+
+## Logs
+*.log
+logs/
+
+## Visual Studio
+.vs/
+*.csproj.user
+
+## Rider
+.idea/
+
+## Configuration (z hasłami - NIE commituj!)
+appsettings.Production.json
+appsettings.*.json
+!appsettings.json
+
+## Secrets
+*.pfx
+*.key

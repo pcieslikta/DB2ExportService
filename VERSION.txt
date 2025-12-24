@@ -1,0 +1,40 @@
+DB2 Export Service
+==================
+
+Version: 1.0.0
+Build Date: 2024-12-23
+Target Framework: .NET 8.0
+Platform: Windows (x64)
+
+Components:
+-----------
+- DB2ExportService (Windows Service)
+- DB2ExportConfigurator (WinForms GUI)
+
+Features:
+---------
+✓ Automated DB2 data export to CSV
+✓ Windows Service with auto-restart
+✓ Quartz.NET scheduling
+✓ Windows Credential Manager integration
+✓ Structured logging (Serilog)
+✓ GUI Configuration tool
+✓ SQL injection protection
+✓ CP1250 encoding support
+
+Requirements:
+-------------
+- Windows 10/11 or Windows Server 2016+
+- .NET 8.0 Runtime (included in self-contained build)
+- IBM DB2 Client drivers
+- Administrator privileges
+
+Installation:
+-------------
+See INSTALL.txt for detailed instructions
+
+Support:
+--------
+Documentation: Documentation/README.md
+Quick Start: Documentation/QUICKSTART.md
+Configurator: Documentation/CONFIGURATOR.md
