@@ -1,5 +1,11 @@
 using System;
+using System.IO;
 using System.Windows.Forms;
+using DB2ExportService.Configuration;
+using DB2ExportService.Services;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DB2ExportConfigurator
 {
@@ -12,7 +18,72 @@ namespace DB2ExportConfigurator
             Application.SetCompatibleTextRenderingDefault(false);
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
 
-            Application.Run(new MainForm());
+            // Inicjalizacja Dependency Injection
+            var services = new ServiceCollection();
+            ConfigureServices(services);
+
+            var serviceProvider = services.BuildServiceProvider();
+
+            // Uruchom formularz z DI
+            var mainForm = serviceProvider.GetRequiredService<MainForm>();
+            Application.Run(mainForm);
+        }
+
+        private static void ConfigureServices(IServiceCollection services)
+        {
+            // Konfiguracja appsettings.json
+            var possiblePaths = new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DB2Export", "appsettings.json"),
+                @"C:\Services\DB2Export\appsettings.json",
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json")
+            };
+
+            string? configPath = null;
+            foreach (var path in possiblePaths)
+            {
+                if (File.Exists(path))
+                {
+                    configPath = path;
+                    break;
+                }
+            }
+
+            if (configPath == null)
+            {
+                MessageBox.Show(
+                    "Nie znaleziono pliku appsettings.json w żadnej z lokalizacji:\n" +
+                    string.Join("\n", possiblePaths),
+                    "Błąd konfiguracji",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                Environment.Exit(1);
+            }
+
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(Path.GetDirectoryName(configPath) ?? Directory.GetCurrentDirectory())
+                .AddJsonFile(Path.GetFileName(configPath), optional: false, reloadOnChange: true)
+                .Build();
+
+            services.AddSingleton<IConfiguration>(configuration);
+
+            // Logging
+            services.AddLogging(builder =>
+            {
+                builder.AddConsole();
+                builder.SetMinimumLevel(LogLevel.Information);
+            });
+
+            // Configuration Helper
+            services.AddSingleton<ConfigurationHelper>();
+
+            // Services
+            services.AddSingleton<ResiliencePolicyService>();
+            services.AddSingleton<IDB2Service, DB2Service>();
+            services.AddSingleton<ChangeDetectionService>();
+
+            // MainForm jako Transient (utworzone przez DI)
+            services.AddTransient<MainForm>();
         }
     }
 }

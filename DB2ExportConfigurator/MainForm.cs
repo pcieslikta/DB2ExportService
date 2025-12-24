@@ -6,6 +6,8 @@ using System.Linq;
 using System.ServiceProcess;
 using System.Text.Json;
 using System.Windows.Forms;
+using Microsoft.Extensions.DependencyInjection;
+using DB2ExportService.Models;
 
 namespace DB2ExportConfigurator
 {
@@ -15,12 +17,15 @@ namespace DB2ExportConfigurator
         private readonly string _configPath;
         private readonly string _servicePath;
         private bool _isDarkMode = false;
+        private readonly IServiceProvider _serviceProvider;
 
         // Service control
         private const string SERVICE_NAME = "RGExportService";
 
-        public MainForm()
+        public MainForm(IServiceProvider serviceProvider)
         {
+            _serviceProvider = serviceProvider;
+
             _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "DB2Export", "appsettings.json");
 
@@ -140,12 +145,35 @@ namespace DB2ExportConfigurator
             chkUseCredentialManager.Checked = _settings.DB2?.UseCredentialManager ?? false;
             txtCredentialKey.Text = _settings.DB2?.CredentialKey ?? "DB2Export_PROD";
 
-            // Export Configuration
+            // Export Configuration - Basic
             txtExportPath.Text = _settings.ExportConfig?.ExportPath ?? @"C:\EXPORT\";
             txtLogPath.Text = _settings.ExportConfig?.LogPath ?? @"C:\EXPORT\LOG\";
             txtScheduleTime.Text = _settings.ExportConfig?.ScheduleTime ?? "13:15";
             numDaysBack.Value = Math.Abs(_settings.ExportConfig?.DaysBack ?? -2);
             txtKodExportu.Text = _settings.ExportConfig?.KodExportu ?? "SOSNO";
+
+            // TODO: Export Configuration - NEW PARAMETERS (uncomment when controls are added)
+            // File Management
+            // chkEnableZipCompression.Checked = _settings.ExportConfig?.EnableZipCompression ?? true;
+            // numFileRetentionDays.Value = _settings.ExportConfig?.FileRetentionDays ?? 90;
+            // chkEnableAutoArchiving.Checked = _settings.ExportConfig?.EnableAutoArchiving ?? true;
+            // txtArchivePath.Text = _settings.ExportConfig?.ArchivePath ?? "";
+
+            // Performance
+            // numMaxParallelTasks.Value = _settings.ExportConfig?.MaxParallelTasks ?? 3;
+            // numBatchSize.Value = _settings.ExportConfig?.BatchSize ?? 1000;
+
+            // Resilience
+            // numRetryCount.Value = _settings.ExportConfig?.RetryCount ?? 3;
+            // numRetryDelaySeconds.Value = _settings.ExportConfig?.RetryDelaySeconds ?? 5;
+            // numCircuitBreakerFailures.Value = _settings.ExportConfig?.CircuitBreakerFailureThreshold ?? 5;
+            // numCircuitBreakerDuration.Value = _settings.ExportConfig?.CircuitBreakerDurationSeconds ?? 60;
+
+            // Monitoring
+            // chkEnableDetailedLogging.Checked = _settings.ExportConfig?.EnableDetailedLogging ?? true;
+            // chkEnableMetrics.Checked = _settings.ExportConfig?.EnableMetrics ?? true;
+            // chkEnableEmailNotifications.Checked = _settings.ExportConfig?.EnableEmailNotifications ?? false;
+            // txtNotificationEmail.Text = _settings.ExportConfig?.NotificationEmail ?? "";
 
             // Vehicle Configuration
             cmbPojazdyMode.SelectedItem = _settings.VehicleConfig?.PojazdyMode ?? "lista";
@@ -373,42 +401,11 @@ namespace DB2ExportConfigurator
         }
     }
 
-    // Configuration models
+    // Configuration models - używamy klas z głównego projektu DB2ExportService.Models
     public class ExportSettings
     {
         public ExportConfig? ExportConfig { get; set; }
         public VehicleConfig? VehicleConfig { get; set; }
         public DB2Config? DB2 { get; set; }
-    }
-
-    public class ExportConfig
-    {
-        public string KodExportu { get; set; } = string.Empty;
-        public string ExportPath { get; set; } = @"C:\EXPORT\";
-        public string LogPath { get; set; } = @"C:\EXPORT\LOG\";
-        public string ScheduleTime { get; set; } = "13:15";
-        public int DaysBack { get; set; } = -2;
-    }
-
-    public class VehicleConfig
-    {
-        public string KodExportu { get; set; } = string.Empty;
-        public string PojazdyMode { get; set; } = "lista";
-        public int PojazdyStart { get; set; } = 2209;
-        public int PojazdyEnd { get; set; } = 2238;
-        public List<int> PojazdyLista { get; set; } = new();
-    }
-
-    public class DB2Config
-    {
-        public string Database { get; set; } = string.Empty;
-        public string Hostname { get; set; } = string.Empty;
-        public int Port { get; set; } = 50000;
-        public string Protocol { get; set; } = "TCPIP";
-        public string User { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-        public bool UseCredentialManager { get; set; } = false;
-        public string CredentialKey { get; set; } = string.Empty;
-        public int CCSID { get; set; } = 1250;
     }
 }

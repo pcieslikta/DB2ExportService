@@ -269,4 +269,59 @@ public class DB2Service : IDB2Service
 
         return reader.GetInt32(ordinal);
     }
+
+    public async Task<List<VehicleInfo>> GetVehiclesAsync(int? nbFrom = null, int? nbTo = null, bool? activeOnly = null)
+    {
+        return await _resiliencePolicy.ExecuteDbOperationAsync(async () =>
+        {
+            using var connection = CreateConnection();
+
+            // Budowanie dynamicznego WHERE
+            var whereClauses = new List<string>();
+
+            if (nbFrom.HasValue)
+                whereClauses.Add($"NB >= {nbFrom.Value}");
+
+            if (nbTo.HasValue)
+                whereClauses.Add($"NB <= {nbTo.Value}");
+
+            if (activeOnly.HasValue && activeOnly.Value)
+                whereClauses.Add("STATUS = 'A'");
+
+            var whereClause = whereClauses.Any()
+                ? "WHERE " + string.Join(" AND ", whereClauses)
+                : "";
+
+            var sql = $@"
+                SELECT
+                    NB,
+                    TRIM(NR) AS NR,
+                    TRIM(STATUS) AS STATUS
+                FROM ALASKA.RE_POJAZDY
+                {whereClause}
+                ORDER BY NB";
+
+            using var command = new DB2Command(sql, connection);
+
+            _logger.LogInformation(
+                "Pobieranie pojazdów: NB {NbFrom}-{NbTo}, ActiveOnly={ActiveOnly}",
+                nbFrom, nbTo, activeOnly);
+
+            var result = new List<VehicleInfo>();
+            using var reader = await command.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
+            {
+                result.Add(new VehicleInfo
+                {
+                    NB = reader.GetInt32(reader.GetOrdinal("NB")),
+                    NR = GetStringValue(reader, "NR"),
+                    Status = GetStringValue(reader, "STATUS")
+                });
+            }
+
+            _logger.LogInformation("Pobrano {Count} pojazdów", result.Count);
+            return result;
+        }, $"GetVehicles-{nbFrom}-{nbTo}-{activeOnly}");
+    }
 }
