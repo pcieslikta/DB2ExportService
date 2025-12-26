@@ -7,6 +7,7 @@ using System.ServiceProcess;
 using System.Text.Json;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using DB2ExportService.Models;
 
 namespace DB2ExportConfigurator
@@ -15,16 +16,19 @@ namespace DB2ExportConfigurator
     {
         private ExportSettings _settings = null!;
         private readonly string _configPath;
-        private readonly string _servicePath;
-        private bool _isDarkMode = false;
         private readonly IServiceProvider _serviceProvider;
+        private readonly ILogger<MainForm> _logger;
 
         // Service control
         private const string SERVICE_NAME = "RGExportService";
 
-        public MainForm(IServiceProvider serviceProvider)
+        public MainForm(IServiceProvider serviceProvider, ILogger<MainForm> logger)
         {
             _serviceProvider = serviceProvider;
+            _logger = logger;
+
+            _logger.LogInformation("Inicjalizacja MainForm");
+
 
             _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "DB2Export", "appsettings.json");
@@ -34,8 +38,6 @@ namespace DB2ExportConfigurator
             {
                 _configPath = @"C:\Services\DB2Export\appsettings.json";
             }
-
-            _servicePath = @"C:\Services\DB2Export";
 
             InitializeComponent();
             InitializeSidebar();
@@ -152,28 +154,28 @@ namespace DB2ExportConfigurator
             numDaysBack.Value = Math.Abs(_settings.ExportConfig?.DaysBack ?? -2);
             txtKodExportu.Text = _settings.ExportConfig?.KodExportu ?? "SOSNO";
 
-            // TODO: Export Configuration - NEW PARAMETERS (uncomment when controls are added)
+            // Export Configuration - NEW PARAMETERS
             // File Management
-            // chkEnableZipCompression.Checked = _settings.ExportConfig?.EnableZipCompression ?? true;
-            // numFileRetentionDays.Value = _settings.ExportConfig?.FileRetentionDays ?? 90;
-            // chkEnableAutoArchiving.Checked = _settings.ExportConfig?.EnableAutoArchiving ?? true;
-            // txtArchivePath.Text = _settings.ExportConfig?.ArchivePath ?? "";
+            chkEnableZipCompression.Checked = _settings.ExportConfig?.EnableZipCompression ?? true;
+            numFileRetentionDays.Value = _settings.ExportConfig?.FileRetentionDays ?? 90;
+            chkEnableAutoArchiving.Checked = _settings.ExportConfig?.EnableAutoArchiving ?? true;
+            txtArchivePath.Text = _settings.ExportConfig?.ArchivePath ?? "";
 
             // Performance
-            // numMaxParallelTasks.Value = _settings.ExportConfig?.MaxParallelTasks ?? 3;
-            // numBatchSize.Value = _settings.ExportConfig?.BatchSize ?? 1000;
+            numMaxParallelTasks.Value = _settings.ExportConfig?.MaxParallelTasks ?? 3;
+            numBatchSize.Value = _settings.ExportConfig?.BatchSize ?? 1000;
 
             // Resilience
-            // numRetryCount.Value = _settings.ExportConfig?.RetryCount ?? 3;
-            // numRetryDelaySeconds.Value = _settings.ExportConfig?.RetryDelaySeconds ?? 5;
-            // numCircuitBreakerFailures.Value = _settings.ExportConfig?.CircuitBreakerFailureThreshold ?? 5;
-            // numCircuitBreakerDuration.Value = _settings.ExportConfig?.CircuitBreakerDurationSeconds ?? 60;
+            numRetryCount.Value = _settings.ExportConfig?.RetryCount ?? 3;
+            numRetryDelaySeconds.Value = _settings.ExportConfig?.RetryDelaySeconds ?? 5;
+            numCircuitBreakerFailures.Value = _settings.ExportConfig?.CircuitBreakerFailureThreshold ?? 5;
+            numCircuitBreakerDuration.Value = _settings.ExportConfig?.CircuitBreakerDurationSeconds ?? 60;
 
             // Monitoring
-            // chkEnableDetailedLogging.Checked = _settings.ExportConfig?.EnableDetailedLogging ?? true;
-            // chkEnableMetrics.Checked = _settings.ExportConfig?.EnableMetrics ?? true;
-            // chkEnableEmailNotifications.Checked = _settings.ExportConfig?.EnableEmailNotifications ?? false;
-            // txtNotificationEmail.Text = _settings.ExportConfig?.NotificationEmail ?? "";
+            chkEnableDetailedLogging.Checked = _settings.ExportConfig?.EnableDetailedLogging ?? true;
+            chkEnableMetrics.Checked = _settings.ExportConfig?.EnableMetrics ?? true;
+            chkEnableEmailNotifications.Checked = _settings.ExportConfig?.EnableEmailNotifications ?? false;
+            txtNotificationEmail.Text = _settings.ExportConfig?.NotificationEmail ?? "";
 
             // Vehicle Configuration
             cmbPojazdyMode.SelectedItem = _settings.VehicleConfig?.PojazdyMode ?? "lista";
@@ -212,7 +214,29 @@ namespace DB2ExportConfigurator
                     ExportPath = txtExportPath.Text,
                     LogPath = txtLogPath.Text,
                     ScheduleTime = txtScheduleTime.Text,
-                    DaysBack = -(int)numDaysBack.Value
+                    DaysBack = -(int)numDaysBack.Value,
+
+                    // File Management
+                    EnableZipCompression = chkEnableZipCompression.Checked,
+                    FileRetentionDays = (int)numFileRetentionDays.Value,
+                    EnableAutoArchiving = chkEnableAutoArchiving.Checked,
+                    ArchivePath = string.IsNullOrWhiteSpace(txtArchivePath.Text) ? null : txtArchivePath.Text,
+
+                    // Performance
+                    MaxParallelTasks = (int)numMaxParallelTasks.Value,
+                    BatchSize = (int)numBatchSize.Value,
+
+                    // Resilience
+                    RetryCount = (int)numRetryCount.Value,
+                    RetryDelaySeconds = (int)numRetryDelaySeconds.Value,
+                    CircuitBreakerFailureThreshold = (int)numCircuitBreakerFailures.Value,
+                    CircuitBreakerDurationSeconds = (int)numCircuitBreakerDuration.Value,
+
+                    // Monitoring
+                    EnableDetailedLogging = chkEnableDetailedLogging.Checked,
+                    EnableMetrics = chkEnableMetrics.Checked,
+                    EnableEmailNotifications = chkEnableEmailNotifications.Checked,
+                    NotificationEmail = string.IsNullOrWhiteSpace(txtNotificationEmail.Text) ? null : txtNotificationEmail.Text
                 };
 
                 _settings.VehicleConfig = new VehicleConfig
@@ -398,6 +422,183 @@ namespace DB2ExportConfigurator
             Uninstall,
             RunConsole,
             Diagnostics
+        }
+
+        private async void BtnTestConnection_Click(object? sender, EventArgs e)
+        {
+            _logger.LogInformation("========================================");
+            _logger.LogInformation("TEST POŁĄCZENIA DB2 - START");
+            _logger.LogInformation("========================================");
+
+            try
+            {
+                btnTestConnection.Enabled = false;
+                lblConnectionStatus.Text = "Testowanie połączenia...";
+                lblConnectionStatus.ForeColor = Color.Blue;
+
+                // Tymczasowo zapisz ustawienia DB2 do testowania
+                var testConfig = new DB2Config
+                {
+                    Database = txtDatabase.Text,
+                    Hostname = txtHostname.Text,
+                    Port = int.TryParse(txtPort.Text, out int port) ? port : 50000,
+                    Protocol = "TCPIP",
+                    User = txtUser.Text,
+                    Password = string.IsNullOrEmpty(txtPassword.Text) ? "***EMPTY***" : "***SET***",
+                    UseCredentialManager = chkUseCredentialManager.Checked,
+                    CredentialKey = txtCredentialKey.Text,
+                    CCSID = 1250
+                };
+
+                _logger.LogInformation("Konfiguracja połączenia:");
+                _logger.LogInformation("  Database: {Database}", testConfig.Database);
+                _logger.LogInformation("  Hostname: {Hostname}", testConfig.Hostname);
+                _logger.LogInformation("  Port: {Port}", testConfig.Port);
+                _logger.LogInformation("  Protocol: {Protocol}", testConfig.Protocol);
+                _logger.LogInformation("  User: {User}", string.IsNullOrEmpty(txtUser.Text) ? "***EMPTY***" : txtUser.Text);
+                _logger.LogInformation("  Password: {Password}", testConfig.Password);
+                _logger.LogInformation("  UseCredentialManager: {UseCredentialManager}", testConfig.UseCredentialManager);
+                _logger.LogInformation("  CredentialKey: {CredentialKey}", testConfig.CredentialKey);
+                _logger.LogInformation("  CCSID: {CCSID}", testConfig.CCSID);
+
+                // Walidacja podstawowa
+                if (string.IsNullOrWhiteSpace(testConfig.Database) ||
+                    string.IsNullOrWhiteSpace(testConfig.Hostname))
+                {
+                    _logger.LogWarning("Walidacja nieudana - brakuje Database lub Hostname");
+                    lblConnectionStatus.Text = "✗ Wypełnij wszystkie wymagane pola";
+                    lblConnectionStatus.ForeColor = Color.Red;
+                    MessageBox.Show("Wypełnij Database i Hostname przed testem połączenia.",
+                        "Brakujące dane", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                _logger.LogInformation("Walidacja OK - pobieranie DB2Service z DI...");
+
+                // Test połączenia przez próbę pobrania liczby rekordów
+                var db2Service = _serviceProvider.GetRequiredService<DB2ExportService.Services.IDB2Service>();
+                _logger.LogInformation("DB2Service otrzymany z DI: {ServiceType}", db2Service.GetType().Name);
+
+                // Próba pobrania danych - to sprawdzi połączenie
+                var testDate = DateTime.Now.AddDays(-1);
+                _logger.LogInformation("Wykonywanie testowego zapytania GetRecordCountAsync dla daty: {TestDate}", testDate);
+
+                var count = await db2Service.GetRecordCountAsync(testDate);
+
+                _logger.LogInformation("Zapytanie wykonane pomyślnie! Liczba rekordów: {Count}", count);
+
+                lblConnectionStatus.Text = $"✓ Połączenie udane! Testowe zapytanie zwróciło {count?.ToString() ?? "0"} rekordów";
+                lblConnectionStatus.ForeColor = Color.Green;
+
+                _logger.LogInformation("TEST POŁĄCZENIA DB2 - SUKCES");
+
+                MessageBox.Show(
+                    $"Połączenie z bazą DB2 zostało nawiązane pomyślnie!\n\n" +
+                    $"Database: {txtDatabase.Text}\n" +
+                    $"Hostname: {txtHostname.Text}:{testConfig.Port}\n" +
+                    $"Testowe zapytanie zwróciło: {count?.ToString() ?? "0"} rekordów\n\n" +
+                    $"Szczegóły w logach: {Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs")}",
+                    "Test połączenia - Sukces",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "TEST POŁĄCZENIA DB2 - BŁĄD");
+                _logger.LogError("Typ błędu: {ExceptionType}", ex.GetType().Name);
+                _logger.LogError("Komunikat: {Message}", ex.Message);
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("Inner Exception: {InnerMessage}", ex.InnerException.Message);
+                    _logger.LogError("Inner Exception Type: {InnerType}", ex.InnerException.GetType().Name);
+                }
+                _logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+
+                lblConnectionStatus.Text = "✗ Błąd połączenia";
+                lblConnectionStatus.ForeColor = Color.Red;
+
+                string errorMsg = ex.Message;
+                if (ex.InnerException != null)
+                    errorMsg += $"\n\nSzczegóły: {ex.InnerException.Message}";
+
+                var logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+                MessageBox.Show(
+                    $"Nie udało się połączyć z bazą danych DB2:\n\n{errorMsg}\n\n" +
+                    $"Sprawdź:\n" +
+                    $"• Poprawność danych połączenia (Database, Hostname, Port)\n" +
+                    $"• Czy baza danych jest dostępna\n" +
+                    $"• Czy sterownik IBM DB2 Client jest zainstalowany\n" +
+                    $"• Credentials (User/Password lub Credential Manager)\n\n" +
+                    $"Pełne logi w: {logPath}",
+                    "Test połączenia - Błąd",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnTestConnection.Enabled = true;
+                _logger.LogInformation("========================================");
+            }
+        }
+
+        private async void BtnFetchVehicles_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                btnFetchVehicles.Enabled = false;
+                lblFetchStatus.Text = "Pobieranie pojazdów z bazy danych...";
+                lblFetchStatus.ForeColor = Color.Blue;
+
+                int? nbFrom = numFetchNbFrom.Value > 0 ? (int)numFetchNbFrom.Value : null;
+                int? nbTo = numFetchNbTo.Value > 0 ? (int)numFetchNbTo.Value : null;
+                bool? activeOnly = chkFetchActiveOnly.Checked ? true : null;
+
+                var db2Service = _serviceProvider.GetRequiredService<DB2ExportService.Services.IDB2Service>();
+                var vehicles = await db2Service.GetVehiclesAsync(nbFrom, nbTo, activeOnly);
+
+                if (vehicles.Count == 0)
+                {
+                    lblFetchStatus.Text = "Nie znaleziono pojazdów spełniających kryteria";
+                    lblFetchStatus.ForeColor = Color.Orange;
+                    MessageBox.Show("Nie znaleziono pojazdów spełniających podane kryteria.",
+                        "Brak wyników", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                // Wypełnij pole tekstowe listą pojazdów
+                txtPojazdyLista.Text = string.Join(", ", vehicles.Select(v => v.NB));
+                cmbPojazdyMode.SelectedItem = "lista";
+
+                lblFetchStatus.Text = $"✓ Pobrano {vehicles.Count} pojazdów";
+                lblFetchStatus.ForeColor = Color.Green;
+
+                MessageBox.Show(
+                    $"Pobrano {vehicles.Count} pojazdów z bazy danych.\n\n" +
+                    $"Lista została automatycznie wypełniona w polu 'Lista pojazdów'.\n" +
+                    $"Pamiętaj o zapisaniu konfiguracji!",
+                    "Sukces",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                lblFetchStatus.Text = "✗ Błąd podczas pobierania";
+                lblFetchStatus.ForeColor = Color.Red;
+
+                MessageBox.Show(
+                    $"Błąd podczas pobierania pojazdów z bazy danych:\n\n{ex.Message}\n\n" +
+                    $"Sprawdź:\n" +
+                    $"• Konfigurację połączenia DB2\n" +
+                    $"• Dostępność bazy danych\n" +
+                    $"• Uprawnienia użytkownika",
+                    "Błąd",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnFetchVehicles.Enabled = true;
+            }
         }
     }
 

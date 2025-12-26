@@ -24,14 +24,28 @@ public class DB2Service : IDB2Service
 
     private DB2Connection CreateConnection()
     {
-        var connectionString = $"Database={_db2Config.Database};" +
-                              $"Server={_db2Config.Hostname}:{_db2Config.Port};" +
+        _logger.LogDebug("Budowanie connection stringu z następujących parametrów:");
+        _logger.LogDebug("  Database: {Database}", _db2Config.Database);
+        _logger.LogDebug("  Server: {Hostname}:{Port}", _db2Config.Hostname, _db2Config.Port);
+        _logger.LogDebug("  UID: {User}", string.IsNullOrEmpty(_db2Config.User) ? "***EMPTY***" : _db2Config.User);
+        _logger.LogDebug("  PWD: {Password}", string.IsNullOrEmpty(_db2Config.Password) ? "***EMPTY***" : "***SET***");
+
+        // IBM.Data.DB2.Core connection string format (Protocol is NOT a valid parameter)
+        // Format: Server=hostname:port;Database=dbname;UID=user;PWD=password;
+        var connectionString = $"Server={_db2Config.Hostname}:{_db2Config.Port};" +
+                              $"Database={_db2Config.Database};" +
                               $"UID={_db2Config.User};" +
-                              $"PWD={_db2Config.Password};" +
-                              $"CCSID={_db2Config.CCSID};";
+                              $"PWD={_db2Config.Password};";
+
+        // Connection string bez hasła do logów
+        var safeConnectionString = $"Server={_db2Config.Hostname}:{_db2Config.Port};" +
+                                   $"Database={_db2Config.Database};" +
+                                   $"UID={_db2Config.User};" +
+                                   $"PWD=***;";
 
         _logger.LogInformation("Łączenie z bazą danych {Database} na {Hostname}:{Port}",
             _db2Config.Database, _db2Config.Hostname, _db2Config.Port);
+        _logger.LogDebug("Connection string: {ConnectionString}", safeConnectionString);
 
         var connection = new DB2Connection(connectionString);
         connection.Open();
@@ -270,6 +284,15 @@ public class DB2Service : IDB2Service
         return reader.GetInt32(ordinal);
     }
 
+    private DateTime? GetDateTimeValue(IDataReader reader, string columnName)
+    {
+        var ordinal = reader.GetOrdinal(columnName);
+        if (reader.IsDBNull(ordinal))
+            return null;
+
+        return reader.GetDateTime(ordinal);
+    }
+
     public async Task<List<VehicleInfo>> GetVehiclesAsync(int? nbFrom = null, int? nbTo = null, bool? activeOnly = null)
     {
         return await _resiliencePolicy.ExecuteDbOperationAsync(async () =>
@@ -285,8 +308,9 @@ public class DB2Service : IDB2Service
             if (nbTo.HasValue)
                 whereClauses.Add($"NB <= {nbTo.Value}");
 
-            if (activeOnly.HasValue && activeOnly.Value)
-                whereClauses.Add("STATUS = 'A'");
+            // Removed activeOnly filter as STATUS column doesn't exist
+            // if (activeOnly.HasValue && activeOnly.Value)
+            //     whereClauses.Add("STATUS = 'A'");
 
             var whereClause = whereClauses.Any()
                 ? "WHERE " + string.Join(" AND ", whereClauses)
@@ -296,7 +320,13 @@ public class DB2Service : IDB2Service
                 SELECT
                     NB,
                     TRIM(NR) AS NR,
-                    TRIM(STATUS) AS STATUS
+                    TYP_POJ,
+                    ID_MARKI,
+                    DEW,
+                    ZEW,
+                    MA_BRAMKI,
+                    WGOTOWOSCI,
+                    ZAJEZDNIA
                 FROM ALASKA.RE_POJAZDY
                 {whereClause}
                 ORDER BY NB";
@@ -304,8 +334,8 @@ public class DB2Service : IDB2Service
             using var command = new DB2Command(sql, connection);
 
             _logger.LogInformation(
-                "Pobieranie pojazdów: NB {NbFrom}-{NbTo}, ActiveOnly={ActiveOnly}",
-                nbFrom, nbTo, activeOnly);
+                "Pobieranie pojazdów: NB {NbFrom}-{NbTo}",
+                nbFrom, nbTo);
 
             var result = new List<VehicleInfo>();
             using var reader = await command.ExecuteReaderAsync();
@@ -314,14 +344,20 @@ public class DB2Service : IDB2Service
             {
                 result.Add(new VehicleInfo
                 {
-                    NB = reader.GetInt32(reader.GetOrdinal("NB")),
+                    NB = GetIntValue(reader, "NB"),
                     NR = GetStringValue(reader, "NR"),
-                    Status = GetStringValue(reader, "STATUS")
+                    TypPoj = GetIntValue(reader, "TYP_POJ"),
+                    IdMarki = GetIntValue(reader, "ID_MARKI"),
+                    Dew = GetDateTimeValue(reader, "DEW"),
+                    Zew = GetDateTimeValue(reader, "ZEW"),
+                    MaBramki = GetStringValue(reader, "MA_BRAMKI"),
+                    WGotowosci = GetStringValue(reader, "WGOTOWOSCI"),
+                    Zajezdnia = GetIntValue(reader, "ZAJEZDNIA")
                 });
             }
 
             _logger.LogInformation("Pobrano {Count} pojazdów", result.Count);
             return result;
-        }, $"GetVehicles-{nbFrom}-{nbTo}-{activeOnly}");
+        }, $"GetVehicles-{nbFrom}-{nbTo}");
     }
 }

@@ -31,19 +31,51 @@ namespace DB2ExportConfigurator
         private TextBox txtPassword;
         private CheckBox chkUseCredentialManager;
         private TextBox txtCredentialKey;
+        private Button btnTestConnection;
+        private Label lblConnectionStatus;
 
-        // Export Controls
+        // Export Controls - Basic
         private TextBox txtExportPath;
         private TextBox txtLogPath;
         private TextBox txtScheduleTime;
         private NumericUpDown numDaysBack;
         private TextBox txtKodExportu;
 
+        // Export Controls - File Management
+        private CheckBox chkEnableZipCompression;
+        private NumericUpDown numFileRetentionDays;
+        private CheckBox chkEnableAutoArchiving;
+        private TextBox txtArchivePath;
+        private Button btnBrowseArchivePath;
+
+        // Export Controls - Performance
+        private NumericUpDown numMaxParallelTasks;
+        private NumericUpDown numBatchSize;
+
+        // Export Controls - Resilience
+        private NumericUpDown numRetryCount;
+        private NumericUpDown numRetryDelaySeconds;
+        private NumericUpDown numCircuitBreakerFailures;
+        private NumericUpDown numCircuitBreakerDuration;
+
+        // Export Controls - Monitoring
+        private CheckBox chkEnableDetailedLogging;
+        private CheckBox chkEnableMetrics;
+        private CheckBox chkEnableEmailNotifications;
+        private TextBox txtNotificationEmail;
+
         // Vehicles Controls
         private ComboBox cmbPojazdyMode;
         private NumericUpDown numPojazdyStart;
         private NumericUpDown numPojazdyEnd;
         private TextBox txtPojazdyLista;
+
+        // Vehicles - Fetch from DB2
+        private NumericUpDown numFetchNbFrom;
+        private NumericUpDown numFetchNbTo;
+        private CheckBox chkFetchActiveOnly;
+        private Button btnFetchVehicles;
+        private Label lblFetchStatus;
 
         // Service Controls
         private Label lblServiceStatus;
@@ -160,18 +192,25 @@ namespace DB2ExportConfigurator
             btnSave = new Button
             {
                 Text = "💾 Zapisz",
-                Location = new Point(1000, 15),
-                Size = new Size(90, 30),
+                Size = new Size(110, 35),
                 FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(52, 152, 219),
+                BackColor = Color.FromArgb(39, 174, 96),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
                 Cursor = Cursors.Hand,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
+            btnSave.Location = new Point(this.ClientSize.Width - btnSave.Width - 20, 12);
             btnSave.FlatAppearance.BorderSize = 0;
+            btnSave.FlatAppearance.MouseOverBackColor = Color.FromArgb(46, 204, 113);
             btnSave.Click += (s, e) => SaveSettings();
             headerPanel.Controls.Add(btnSave);
+
+            // Update button position when form resizes
+            this.Resize += (s, e) =>
+            {
+                btnSave.Location = new Point(this.ClientSize.Width - btnSave.Width - 20, 12);
+            };
         }
 
         private void CreateSidebar()
@@ -266,7 +305,35 @@ namespace DB2ExportConfigurator
             // Credential Key
             AddLabel(panelDB2, "Credential Key:", y);
             txtCredentialKey = AddTextBox(panelDB2, y, "DB2Export_PROD");
-            y += 40;
+            y += 60;
+
+            // Test Connection Button
+            btnTestConnection = new Button
+            {
+                Text = "🔌 Test połączenia",
+                Location = new Point(200, y),
+                Size = new Size(180, 40),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(52, 152, 219),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnTestConnection.FlatAppearance.BorderSize = 0;
+            btnTestConnection.FlatAppearance.MouseOverBackColor = Color.FromArgb(41, 128, 185);
+            btnTestConnection.Click += BtnTestConnection_Click;
+            panelDB2.Controls.Add(btnTestConnection);
+
+            lblConnectionStatus = new Label
+            {
+                Text = "Kliknij przycisk aby przetestować połączenie",
+                Location = new Point(390, y + 10),
+                Size = new Size(450, 25),
+                ForeColor = Color.Gray,
+                Font = new Font("Segoe UI", 9F)
+            };
+            panelDB2.Controls.Add(lblConnectionStatus);
+            y += 60;
 
             contentPanel.Controls.Add(panelDB2);
         }
@@ -334,7 +401,280 @@ namespace DB2ExportConfigurator
             // Kod Exportu
             AddLabel(panelExport, "Kod eksportu:", y);
             txtKodExportu = AddTextBox(panelExport, y, "SOSNO", 200);
-            y += 40;
+            y += 60;
+
+            // === FILE MANAGEMENT SECTION ===
+            var grpFileManagement = new GroupBox
+            {
+                Text = "Zarządzanie plikami",
+                Location = new Point(20, y),
+                Size = new Size(750, 180),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            chkEnableZipCompression = new CheckBox
+            {
+                Text = "Kompresja ZIP",
+                Location = new Point(20, 30),
+                Size = new Size(200, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            chkEnableAutoArchiving = new CheckBox
+            {
+                Text = "Auto-archiwizacja",
+                Location = new Point(20, 60),
+                Size = new Size(200, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            var lblRetention = new Label
+            {
+                Text = "Retencja plików (dni):",
+                Location = new Point(20, 95),
+                Size = new Size(150, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numFileRetentionDays = new NumericUpDown
+            {
+                Location = new Point(180, 92),
+                Size = new Size(100, 25),
+                Minimum = 1,
+                Maximum = 365,
+                Value = 90
+            };
+
+            var lblArchivePath = new Label
+            {
+                Text = "Ścieżka archiwum:",
+                Location = new Point(20, 125),
+                Size = new Size(150, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            txtArchivePath = new TextBox
+            {
+                Location = new Point(180, 122),
+                Size = new Size(400, 25),
+                Font = new Font("Segoe UI", 9F)
+            };
+            btnBrowseArchivePath = new Button
+            {
+                Text = "...",
+                Location = new Point(590, 122),
+                Size = new Size(40, 25)
+            };
+            btnBrowseArchivePath.Click += (s, e) =>
+            {
+                using var dialog = new FolderBrowserDialog();
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    txtArchivePath.Text = dialog.SelectedPath;
+                }
+            };
+
+            grpFileManagement.Controls.AddRange(new Control[] {
+                chkEnableZipCompression, chkEnableAutoArchiving,
+                lblRetention, numFileRetentionDays,
+                lblArchivePath, txtArchivePath, btnBrowseArchivePath
+            });
+            panelExport.Controls.Add(grpFileManagement);
+            y += 200;
+
+            // === PERFORMANCE SECTION ===
+            var grpPerformance = new GroupBox
+            {
+                Text = "Wydajność",
+                Location = new Point(20, y),
+                Size = new Size(750, 100),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            var lblParallelTasks = new Label
+            {
+                Text = "Maks. zadań równoległych:",
+                Location = new Point(20, 30),
+                Size = new Size(180, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numMaxParallelTasks = new NumericUpDown
+            {
+                Location = new Point(210, 27),
+                Size = new Size(100, 25),
+                Minimum = 1,
+                Maximum = 10,
+                Value = 3
+            };
+
+            var lblBatchSize = new Label
+            {
+                Text = "Rozmiar paczki:",
+                Location = new Point(20, 60),
+                Size = new Size(180, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numBatchSize = new NumericUpDown
+            {
+                Location = new Point(210, 57),
+                Size = new Size(100, 25),
+                Minimum = 100,
+                Maximum = 10000,
+                Value = 1000,
+                Increment = 100
+            };
+
+            grpPerformance.Controls.AddRange(new Control[] {
+                lblParallelTasks, numMaxParallelTasks,
+                lblBatchSize, numBatchSize
+            });
+            panelExport.Controls.Add(grpPerformance);
+            y += 120;
+
+            // === RESILIENCE SECTION ===
+            var grpResilience = new GroupBox
+            {
+                Text = "Odporność na błędy (Polly)",
+                Location = new Point(20, y),
+                Size = new Size(750, 150),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            var lblRetryCount = new Label
+            {
+                Text = "Liczba ponowień:",
+                Location = new Point(20, 30),
+                Size = new Size(180, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numRetryCount = new NumericUpDown
+            {
+                Location = new Point(210, 27),
+                Size = new Size(100, 25),
+                Minimum = 0,
+                Maximum = 10,
+                Value = 3
+            };
+
+            var lblRetryDelay = new Label
+            {
+                Text = "Opóźnienie ponowienia (s):",
+                Location = new Point(20, 60),
+                Size = new Size(180, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numRetryDelaySeconds = new NumericUpDown
+            {
+                Location = new Point(210, 57),
+                Size = new Size(100, 25),
+                Minimum = 1,
+                Maximum = 60,
+                Value = 5
+            };
+
+            var lblCircuitBreakerFailures = new Label
+            {
+                Text = "Próg błędów Circuit Breaker:",
+                Location = new Point(20, 90),
+                Size = new Size(180, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numCircuitBreakerFailures = new NumericUpDown
+            {
+                Location = new Point(210, 87),
+                Size = new Size(100, 25),
+                Minimum = 1,
+                Maximum = 20,
+                Value = 5
+            };
+
+            var lblCircuitBreakerDuration = new Label
+            {
+                Text = "Czas otwarcia CB (s):",
+                Location = new Point(20, 120),
+                Size = new Size(180, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            numCircuitBreakerDuration = new NumericUpDown
+            {
+                Location = new Point(210, 117),
+                Size = new Size(100, 25),
+                Minimum = 10,
+                Maximum = 300,
+                Value = 60
+            };
+
+            grpResilience.Controls.AddRange(new Control[] {
+                lblRetryCount, numRetryCount,
+                lblRetryDelay, numRetryDelaySeconds,
+                lblCircuitBreakerFailures, numCircuitBreakerFailures,
+                lblCircuitBreakerDuration, numCircuitBreakerDuration
+            });
+            panelExport.Controls.Add(grpResilience);
+            y += 170;
+
+            // === MONITORING SECTION ===
+            var grpMonitoring = new GroupBox
+            {
+                Text = "Monitorowanie",
+                Location = new Point(20, y),
+                Size = new Size(750, 140),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            chkEnableDetailedLogging = new CheckBox
+            {
+                Text = "Szczegółowe logowanie",
+                Location = new Point(20, 30),
+                Size = new Size(200, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            chkEnableMetrics = new CheckBox
+            {
+                Text = "Metryki wydajności",
+                Location = new Point(20, 60),
+                Size = new Size(200, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            chkEnableEmailNotifications = new CheckBox
+            {
+                Text = "Powiadomienia email",
+                Location = new Point(20, 90),
+                Size = new Size(200, 25),
+                Checked = false,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            var lblNotificationEmail = new Label
+            {
+                Text = "Email:",
+                Location = new Point(230, 93),
+                Size = new Size(50, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            txtNotificationEmail = new TextBox
+            {
+                Location = new Point(290, 90),
+                Size = new Size(300, 25),
+                Enabled = false,
+                Font = new Font("Segoe UI", 9F)
+            };
+
+            chkEnableEmailNotifications.CheckedChanged += (s, e) =>
+            {
+                txtNotificationEmail.Enabled = chkEnableEmailNotifications.Checked;
+            };
+
+            grpMonitoring.Controls.AddRange(new Control[] {
+                chkEnableDetailedLogging, chkEnableMetrics,
+                chkEnableEmailNotifications, lblNotificationEmail, txtNotificationEmail
+            });
+            panelExport.Controls.Add(grpMonitoring);
+            y += 160;
 
             contentPanel.Controls.Add(panelExport);
         }
@@ -445,6 +785,102 @@ namespace DB2ExportConfigurator
             grpList.Controls.Add(txtPojazdyLista);
 
             panelVehicles.Controls.Add(grpList);
+            y += 130;
+
+            // === FETCH VEHICLES FROM DB2 ===
+            var grpFetchVehicles = new GroupBox
+            {
+                Text = "Pobierz pojazdy z bazy DB2",
+                Location = new Point(20, y),
+                Size = new Size(700, 200),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            var lblFetchHint = new Label
+            {
+                Text = "Filtruj pojazdy z bazy danych i automatycznie wypełnij listę",
+                Location = new Point(20, 25),
+                Size = new Size(650, 20),
+                ForeColor = Color.Gray,
+                Font = new Font("Segoe UI", 9F, FontStyle.Italic)
+            };
+            grpFetchVehicles.Controls.Add(lblFetchHint);
+
+            var lblNbFrom = new Label
+            {
+                Text = "NB od:",
+                Location = new Point(20, 55),
+                Size = new Size(120, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpFetchVehicles.Controls.Add(lblNbFrom);
+
+            numFetchNbFrom = new NumericUpDown
+            {
+                Location = new Point(150, 52),
+                Size = new Size(120, 25),
+                Minimum = 0,
+                Maximum = 9999,
+                Value = 0
+            };
+            grpFetchVehicles.Controls.Add(numFetchNbFrom);
+
+            var lblNbTo = new Label
+            {
+                Text = "NB do:",
+                Location = new Point(290, 55),
+                Size = new Size(60, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpFetchVehicles.Controls.Add(lblNbTo);
+
+            numFetchNbTo = new NumericUpDown
+            {
+                Location = new Point(360, 52),
+                Size = new Size(120, 25),
+                Minimum = 0,
+                Maximum = 9999,
+                Value = 0
+            };
+            grpFetchVehicles.Controls.Add(numFetchNbTo);
+
+            chkFetchActiveOnly = new CheckBox
+            {
+                Text = "Tylko aktywne pojazdy",
+                Location = new Point(20, 90),
+                Size = new Size(250, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpFetchVehicles.Controls.Add(chkFetchActiveOnly);
+
+            btnFetchVehicles = new Button
+            {
+                Text = "📥 Pobierz pojazdy z DB2",
+                Location = new Point(20, 125),
+                Size = new Size(220, 45),
+                BackColor = Color.FromArgb(52, 152, 219),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnFetchVehicles.FlatAppearance.BorderSize = 0;
+            btnFetchVehicles.Click += BtnFetchVehicles_Click;
+            grpFetchVehicles.Controls.Add(btnFetchVehicles);
+
+            lblFetchStatus = new Label
+            {
+                Text = "Gotowy do pobrania",
+                Location = new Point(250, 135),
+                Size = new Size(430, 30),
+                ForeColor = Color.Gray,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpFetchVehicles.Controls.Add(lblFetchStatus);
+
+            panelVehicles.Controls.Add(grpFetchVehicles);
+            y += 210;
 
             contentPanel.Controls.Add(panelVehicles);
         }

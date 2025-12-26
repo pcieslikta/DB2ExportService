@@ -23,6 +23,10 @@ if exist "%PUBLISH_DIR%" rmdir /S /Q "%PUBLISH_DIR%"
 if exist "publish\%RELEASE_NAME%.zip" del /Q "publish\%RELEASE_NAME%.zip"
 if not exist "publish" mkdir "publish"
 
+REM Czyszczenie bin/obj z konfiguratora
+if exist "DB2ExportConfigurator\bin" rmdir /S /Q "DB2ExportConfigurator\bin"
+if exist "DB2ExportConfigurator\obj" rmdir /S /Q "DB2ExportConfigurator\obj"
+
 REM Utworz strukturę katalogow
 echo [2/7] Tworzenie struktury katalogow...
 mkdir "%PUBLISH_DIR%" 2>nul
@@ -42,6 +46,10 @@ if errorlevel 1 (
 REM Build konfiguratora (self-contained, aby zawierał Windows Forms)
 echo [4/7] Budowanie DB2ExportConfigurator...
 cd DB2ExportConfigurator
+
+REM WAZNE: Usun bin\PublishTemp aby uniknac rekurencji katalogow
+if exist "bin\PublishTemp" rmdir /S /Q "bin\PublishTemp"
+
 dotnet clean -c Release >nul 2>&1
 dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "bin\PublishTemp"
 if errorlevel 1 (

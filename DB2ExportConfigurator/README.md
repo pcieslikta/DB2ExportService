@@ -64,6 +64,20 @@ DB2ExportConfigurator.exe
 1. **Preferowana:** `C:\Services\DB2Export\appsettings.json`
 2. **Fallback:** `C:\ProgramData\DB2Export\appsettings.json`
 
+### **📋 Logi aplikacji:**
+
+Konfigurator zapisuje szczegółowe logi w katalogu **`logs`** obok pliku .exe:
+- Lokalizacja: `[katalog z exe]\logs\configurator_YYYYMMDD.log`
+- Format: `YYYY-MM-DD HH:mm:ss.fff [LEVEL] Wiadomość`
+- Rotacja: Codziennie (zachowywane ostatnie 7 dni)
+- Poziomy logów: DEBUG, INFO, WARNING, ERROR
+
+**Test połączenia DB2** loguje szczegółowo:
+- Wszystkie parametry połączenia (bez haseł)
+- Krok po kroku wykonywania testu
+- Pełne błędy z Stack Trace
+- Typ błędu i komunikaty
+
 ### **Zapisywanie zmian:**
 
 1. Edytuj ustawienia w odpowiednich zakładkach

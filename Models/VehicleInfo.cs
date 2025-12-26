@@ -16,20 +16,45 @@ public class VehicleInfo
     public string NR { get; set; } = string.Empty;
 
     /// <summary>
-    /// Status pojazdu (A = aktywny, N = nieaktywny)
+    /// Typ pojazdu (DECIMAL(2))
     /// </summary>
-    public string Status { get; set; } = string.Empty;
+    public int TypPoj { get; set; }
 
     /// <summary>
-    /// Czy pojazd jest aktywny
+    /// ID marki pojazdu (DECIMAL(5))
     /// </summary>
-    public bool IsActive => Status?.Trim().ToUpper() == "A";
+    public int IdMarki { get; set; }
+
+    /// <summary>
+    /// Data dewizacji (DATE)
+    /// </summary>
+    public DateTime? Dew { get; set; }
+
+    /// <summary>
+    /// Data zewnętrzna (DATE)
+    /// </summary>
+    public DateTime? Zew { get; set; }
+
+    /// <summary>
+    /// Czy ma bramki (CHAR(1) FOR BIT DATA)
+    /// </summary>
+    public string MaBramki { get; set; } = string.Empty;
+
+    /// <summary>
+    /// W gotowości (CHAR(1) FOR BIT DATA)
+    /// </summary>
+    public string WGotowosci { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Zajezdnia (DECIMAL(5))
+    /// </summary>
+    public int Zajezdnia { get; set; }
 
     /// <summary>
     /// Formatowane wyświetlenie dla listy
     /// </summary>
     public override string ToString()
     {
-        return $"{NB} - {NR} ({(IsActive ? "Aktywny" : "Nieaktywny")})";
+        return $"{NB} - {NR} ({TypPoj})";
     }
 }

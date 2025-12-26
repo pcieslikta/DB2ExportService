@@ -45,11 +45,7 @@ try
     builder.Services.AddSingleton<ExportService>();
 
     // Quartz.NET dla schedulingu
-    builder.Services.AddQuartz(q =>
-    {
-        // Rejestruj ExportJob
-        q.AddJob<ExportJob>(opts => opts.WithIdentity("ExportJob", "DB2Export"));
-    });
+    builder.Services.AddQuartz();
 
     builder.Services.AddQuartzHostedService(options =>
     {

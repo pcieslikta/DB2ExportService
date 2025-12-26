@@ -2,36 +2,63 @@ using System.Runtime.InteropServices;
 using System.Text;
 using DB2ExportService.Models;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace DB2ExportService.Configuration;
 
 public class ConfigurationHelper
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<ConfigurationHelper>? _logger;
 
-    public ConfigurationHelper(IConfiguration configuration)
+    public ConfigurationHelper(IConfiguration configuration, ILogger<ConfigurationHelper>? logger = null)
     {
         _configuration = configuration;
+        _logger = logger;
     }
 
     public DB2Config GetDB2Config(string configKey = "DB2")
     {
+        _logger?.LogDebug("Pobieranie konfiguracji DB2 z sekcji: {ConfigKey}", configKey);
+
         var config = _configuration.GetSection(configKey).Get<DB2Config>();
         if (config == null)
         {
             throw new InvalidOperationException($"Brak konfiguracji DB2 w sekcji '{configKey}'");
         }
 
+        _logger?.LogDebug("Konfiguracja DB2 z appsettings.json:");
+        _logger?.LogDebug("  Database: {Database}", config.Database);
+        _logger?.LogDebug("  Hostname: {Hostname}", config.Hostname);
+        _logger?.LogDebug("  Port: {Port}", config.Port);
+        _logger?.LogDebug("  User z config: {User}", string.IsNullOrEmpty(config.User) ? "***EMPTY***" : config.User);
+        _logger?.LogDebug("  Password z config: {Password}", string.IsNullOrEmpty(config.Password) ? "***EMPTY***" : "***SET***");
+        _logger?.LogDebug("  UseCredentialManager: {UseCredentialManager}", config.UseCredentialManager);
+        _logger?.LogDebug("  CredentialKey: {CredentialKey}", config.CredentialKey);
+
         // Jeśli UseCredentialManager = true, pobierz credentials z Windows Credential Manager
         if (config.UseCredentialManager && !string.IsNullOrEmpty(config.CredentialKey))
         {
+            _logger?.LogInformation("Próba pobrania credentials z Windows Credential Manager: {CredentialKey}", config.CredentialKey);
+
             var credential = GetCredentialFromManager(config.CredentialKey);
             if (credential != null)
             {
+                _logger?.LogInformation("Credentials pobrane pomyślnie z Credential Manager. Username: {Username}", credential.Username);
                 config.User = credential.Username;
                 config.Password = credential.Password;
             }
+            else
+            {
+                _logger?.LogWarning("NIE ZNALEZIONO credentials w Credential Manager dla klucza: {CredentialKey}", config.CredentialKey);
+                _logger?.LogWarning("User pozostaje: {User}", string.IsNullOrEmpty(config.User) ? "***EMPTY***" : config.User);
+                _logger?.LogWarning("Password pozostaje: {Password}", string.IsNullOrEmpty(config.Password) ? "***EMPTY***" : "***SET***");
+            }
         }
+
+        _logger?.LogInformation("Finalna konfiguracja DB2:");
+        _logger?.LogInformation("  User: {User}", string.IsNullOrEmpty(config.User) ? "***EMPTY***" : config.User);
+        _logger?.LogInformation("  Password: {Password}", string.IsNullOrEmpty(config.Password) ? "***EMPTY***" : "***SET***");
 
         return config;
     }
@@ -60,11 +87,15 @@ public class ConfigurationHelper
     {
         try
         {
+            _logger?.LogDebug("Wywołanie CredRead dla klucza: {TargetName}", targetName);
+
             var credential = new CREDENTIAL();
             var credPointer = IntPtr.Zero;
 
             if (CredRead(targetName, CRED_TYPE.GENERIC, 0, out credPointer))
             {
+                _logger?.LogDebug("CredRead zwrócił true - credentials znalezione");
+
                 try
                 {
                     credential = Marshal.PtrToStructure<CREDENTIAL>(credPointer);
@@ -73,6 +104,9 @@ public class ConfigurationHelper
                     var passwordBytes = new byte[credential.CredentialBlobSize];
                     Marshal.Copy(credential.CredentialBlob, passwordBytes, 0, credential.CredentialBlobSize);
                     var password = Encoding.Unicode.GetString(passwordBytes);
+
+                    _logger?.LogDebug("Credentials zdekodowane. Username: {Username}, Password length: {Length}",
+                        username, password?.Length ?? 0);
 
                     return new CredentialInfo
                     {
@@ -86,10 +120,14 @@ public class ConfigurationHelper
                 }
             }
 
+            var lastError = Marshal.GetLastWin32Error();
+            _logger?.LogWarning("CredRead zwrócił false. LastError: {LastError}", lastError);
+
             return null;
         }
         catch (Exception ex)
         {
+            _logger?.LogError(ex, "Wyjątek podczas odczytu credentials z Credential Manager");
             throw new InvalidOperationException($"Błąd podczas odczytu credentials z Windows Credential Manager (klucz: {targetName})", ex);
         }
     }

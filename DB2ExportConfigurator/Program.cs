@@ -6,6 +6,8 @@ using DB2ExportService.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
 
 namespace DB2ExportConfigurator
 {
@@ -14,19 +16,55 @@ namespace DB2ExportConfigurator
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            // Konfiguracja Serilog - logowanie do pliku
+            var logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+            Directory.CreateDirectory(logDirectory);
 
-            // Inicjalizacja Dependency Injection
-            var services = new ServiceCollection();
-            ConfigureServices(services);
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Debug()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+                .Enrich.FromLogContext()
+                .WriteTo.File(
+                    Path.Combine(logDirectory, "configurator_.log"),
+                    rollingInterval: RollingInterval.Day,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
+                    retainedFileCountLimit: 7)
+                .WriteTo.Console()
+                .CreateLogger();
 
-            var serviceProvider = services.BuildServiceProvider();
+            try
+            {
+                Log.Information("========================================");
+                Log.Information("DB2 Export Configurator - Uruchamianie");
+                Log.Information("========================================");
+                Log.Information("Katalog aplikacji: {BaseDirectory}", AppDomain.CurrentDomain.BaseDirectory);
+                Log.Information("Katalog logów: {LogDirectory}", logDirectory);
 
-            // Uruchom formularz z DI
-            var mainForm = serviceProvider.GetRequiredService<MainForm>();
-            Application.Run(mainForm);
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetHighDpiMode(HighDpiMode.SystemAware);
+
+                // Inicjalizacja Dependency Injection
+                var services = new ServiceCollection();
+                ConfigureServices(services);
+
+                var serviceProvider = services.BuildServiceProvider();
+
+                // Uruchom formularz z DI
+                var mainForm = serviceProvider.GetRequiredService<MainForm>();
+                Application.Run(mainForm);
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Aplikacja zakończyła się z błędem krytycznym");
+                MessageBox.Show($"Błąd krytyczny aplikacji:\n\n{ex.Message}\n\nSprawdź logi w katalogu: {logDirectory}",
+                    "Błąd krytyczny", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Log.Information("DB2 Export Configurator - Zamykanie");
+                Log.CloseAndFlush();
+            }
         }
 
         private static void ConfigureServices(IServiceCollection services)
@@ -67,11 +105,12 @@ namespace DB2ExportConfigurator
 
             services.AddSingleton<IConfiguration>(configuration);
 
-            // Logging
+            // Logging - dodaj Serilog
             services.AddLogging(builder =>
             {
-                builder.AddConsole();
-                builder.SetMinimumLevel(LogLevel.Information);
+                builder.ClearProviders();
+                builder.AddSerilog(dispose: true);
+                builder.SetMinimumLevel(LogLevel.Debug);
             });
 
             // Configuration Helper
