@@ -1,9 +1,14 @@
+using System.Text;
 using DB2ExportService;
 using DB2ExportService.Configuration;
 using DB2ExportService.Services;
+using DB2ExportService.Services.Exporters;
 using Quartz;
 using Serilog;
 using Serilog.Events;
+
+// Rejestracja dostawcy kodowania dla CP1250 (polskie znaki)
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 // Konfiguracja Serilog
 Log.Logger = new LoggerConfiguration()
@@ -43,6 +48,15 @@ try
     builder.Services.AddSingleton<IDB2Service, DB2Service>();
     builder.Services.AddSingleton<ChangeDetectionService>();
     builder.Services.AddSingleton<ExportService>();
+
+    // Exporters (Strategy Pattern)
+    builder.Services.AddTransient<BramkiBasicExporter>();
+    builder.Services.AddTransient<BramkiDetailExporter>();
+    builder.Services.AddTransient<PunktualnosćExporter>();
+    builder.Services.AddSingleton<ExportTypeRegistry>();
+
+    // Trigger File Watcher
+    builder.Services.AddHostedService<TriggerFileWatcherService>();
 
     // Quartz.NET dla schedulingu
     builder.Services.AddQuartz();

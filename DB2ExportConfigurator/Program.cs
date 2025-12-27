@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Windows.Forms;
 using DB2ExportService.Configuration;
 using DB2ExportService.Services;
@@ -16,6 +17,9 @@ namespace DB2ExportConfigurator
         [STAThread]
         static void Main()
         {
+            // Rejestracja dostawcy kodowania dla CP1250 (polskie znaki)
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
             // Konfiguracja Serilog - logowanie do pliku
             var logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
             Directory.CreateDirectory(logDirectory);

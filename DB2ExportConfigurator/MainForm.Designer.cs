@@ -64,11 +64,19 @@ namespace DB2ExportConfigurator
         private CheckBox chkEnableEmailNotifications;
         private TextBox txtNotificationEmail;
 
-        // Vehicles Controls
+        // Vehicles Controls - Old (deprecated, kept for compatibility)
         private ComboBox cmbPojazdyMode;
         private NumericUpDown numPojazdyStart;
         private NumericUpDown numPojazdyEnd;
-        private TextBox txtPojazdyLista;
+        private TextBox txtPojazdyLista;  // Hidden, used for config storage
+
+        // Vehicles Controls - New Unified Interface
+        private TextBox txtVehicleInput;
+        private Button btnParseAndFetch;
+        private Label lblParseStatus;
+        private DataGridView dgvVehicles;
+        private CheckBox chkSelectAll;
+        private Button btnApplySelection;
 
         // Vehicles - Fetch from DB2
         private NumericUpDown numFetchNbFrom;
@@ -703,89 +711,173 @@ namespace DB2ExportConfigurator
             panelVehicles.Controls.Add(lblSection);
             y += 50;
 
+            // === OLD CONTROLS (Hidden for backward compatibility) ===
             // Mode
-            AddLabel(panelVehicles, "Tryb wyboru:", y);
             cmbPojazdyMode = new ComboBox
             {
                 Location = new Point(200, y),
                 Size = new Size(200, 25),
-                DropDownStyle = ComboBoxStyle.DropDownList
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Visible = false  // Hidden
             };
             cmbPojazdyMode.Items.AddRange(new object[] { "lista", "zakres" });
             cmbPojazdyMode.SelectedIndex = 0;
-            cmbPojazdyMode.SelectedIndexChanged += (s, e) => UpdateVehicleModeControls();
             panelVehicles.Controls.Add(cmbPojazdyMode);
-            y += 50;
 
-            // Range Group
-            var grpRange = new GroupBox
-            {
-                Text = "Zakres pojazdów",
-                Location = new Point(20, y),
-                Size = new Size(700, 100),
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
-            };
-
-            var lblFrom = new Label
-            {
-                Text = "Od:",
-                Location = new Point(20, 35),
-                Size = new Size(80, 20)
-            };
-            grpRange.Controls.Add(lblFrom);
-
+            // Range controls (hidden)
             numPojazdyStart = new NumericUpDown
             {
-                Location = new Point(110, 35),
+                Location = new Point(110, y),
                 Size = new Size(120, 25),
                 Minimum = 1,
                 Maximum = 9999,
-                Value = 2209
+                Value = 2209,
+                Visible = false
             };
-            grpRange.Controls.Add(numPojazdyStart);
-
-            var lblTo = new Label
-            {
-                Text = "Do:",
-                Location = new Point(280, 35),
-                Size = new Size(80, 20)
-            };
-            grpRange.Controls.Add(lblTo);
+            panelVehicles.Controls.Add(numPojazdyStart);
 
             numPojazdyEnd = new NumericUpDown
             {
-                Location = new Point(370, 35),
+                Location = new Point(370, y),
                 Size = new Size(120, 25),
                 Minimum = 1,
                 Maximum = 9999,
-                Value = 2238
+                Value = 2238,
+                Visible = false
             };
-            grpRange.Controls.Add(numPojazdyEnd);
+            panelVehicles.Controls.Add(numPojazdyEnd);
 
-            panelVehicles.Controls.Add(grpRange);
-            y += 110;
-
-            // List Group
-            var grpList = new GroupBox
+            // Old list TextBox (hidden, used for config storage)
+            txtPojazdyLista = new TextBox
             {
-                Text = "Lista pojazdów (oddzielone przecinkami)",
+                Location = new Point(15, y),
+                Size = new Size(670, 70),
+                Multiline = true,
+                ScrollBars = ScrollBars.Vertical,
+                Visible = false  // Hidden, used only for config storage
+            };
+            panelVehicles.Controls.Add(txtPojazdyLista);
+
+            // === NEW UNIFIED INTERFACE ===
+
+            // Unified Input Group
+            var grpUnifiedInput = new GroupBox
+            {
+                Text = "Wprowadź numery pojazdów (format: 100-120, 789, 900-905)",
                 Location = new Point(20, y),
                 Size = new Size(700, 120),
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold)
             };
 
-            txtPojazdyLista = new TextBox
+            txtVehicleInput = new TextBox
             {
                 Location = new Point(15, 30),
-                Size = new Size(670, 70),
-                Multiline = true,
-                ScrollBars = ScrollBars.Vertical,
-                Text = "598, 599, 600, 601, 602, 841, 842, 843, 844, 845, 846, 2107, 2108, 2600, 2601, 2602, 2603"
+                Size = new Size(550, 25),
+                Font = new Font("Segoe UI", 10F)
             };
-            grpList.Controls.Add(txtPojazdyLista);
+            grpUnifiedInput.Controls.Add(txtVehicleInput);
 
-            panelVehicles.Controls.Add(grpList);
+            btnParseAndFetch = new Button
+            {
+                Text = "Pobierz pojazdy",
+                Location = new Point(575, 27),
+                Size = new Size(110, 30),
+                BackColor = Color.FromArgb(52, 152, 219),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnParseAndFetch.FlatAppearance.BorderSize = 0;
+            btnParseAndFetch.Click += BtnParseAndFetch_Click;
+            grpUnifiedInput.Controls.Add(btnParseAndFetch);
+
+            lblParseStatus = new Label
+            {
+                Location = new Point(15, 65),
+                Size = new Size(670, 40),
+                ForeColor = Color.Gray,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpUnifiedInput.Controls.Add(lblParseStatus);
+
+            panelVehicles.Controls.Add(grpUnifiedInput);
             y += 130;
+
+            // Vehicle Selection Grid
+            var grpVehicleGrid = new GroupBox
+            {
+                Text = "Wybór pojazdów",
+                Location = new Point(20, y),
+                Size = new Size(700, 420),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            chkSelectAll = new CheckBox
+            {
+                Text = "Zaznacz wszystkie",
+                Location = new Point(15, 28),
+                Size = new Size(150, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            chkSelectAll.CheckedChanged += (s, e) => {
+                if (dgvVehicles != null && dgvVehicles.Rows.Count > 0)
+                {
+                    foreach (DataGridViewRow row in dgvVehicles.Rows)
+                        row.Cells["Selected"].Value = chkSelectAll.Checked;
+                }
+            };
+            grpVehicleGrid.Controls.Add(chkSelectAll);
+
+            dgvVehicles = new DataGridView
+            {
+                Location = new Point(15, 55),
+                Size = new Size(670, 300),
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                ReadOnly = false,
+                RowHeadersVisible = false,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.Fixed3D
+            };
+
+            // Define columns
+            dgvVehicles.Columns.Add(new DataGridViewCheckBoxColumn
+            {
+                Name = "Selected",
+                HeaderText = "✓",
+                Width = 40,
+                ReadOnly = false
+            });
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "NB", HeaderText = "NB", ReadOnly = true, Width = 60 });
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "NR", HeaderText = "Nr rej.", ReadOnly = true });
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "TYP_POJ", HeaderText = "Typ", ReadOnly = true, Width = 60 });
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "ZAJEZDNIA", HeaderText = "Zajezdnia", ReadOnly = true, Width = 80 });
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "MA_BRAMKI", HeaderText = "Bramki", ReadOnly = true, Width = 70 });
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "WGOTOWOSCI", HeaderText = "Aktywny", ReadOnly = true, Width = 70 });
+
+            grpVehicleGrid.Controls.Add(dgvVehicles);
+
+            btnApplySelection = new Button
+            {
+                Text = "Zastosuj wybór",
+                Location = new Point(560, 365),
+                Size = new Size(125, 35),
+                BackColor = Color.FromArgb(39, 174, 96),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnApplySelection.FlatAppearance.BorderSize = 0;
+            btnApplySelection.Click += BtnApplySelection_Click;
+            grpVehicleGrid.Controls.Add(btnApplySelection);
+
+            panelVehicles.Controls.Add(grpVehicleGrid);
+            y += 430;
 
             // === FETCH VEHICLES FROM DB2 ===
             var grpFetchVehicles = new GroupBox

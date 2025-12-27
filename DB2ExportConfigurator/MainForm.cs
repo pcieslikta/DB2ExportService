@@ -184,10 +184,12 @@ namespace DB2ExportConfigurator
 
             if (_settings.VehicleConfig?.PojazdyLista != null && _settings.VehicleConfig.PojazdyLista.Any())
             {
-                txtPojazdyLista.Text = string.Join(", ", _settings.VehicleConfig.PojazdyLista);
+                var vehicleList = string.Join(", ", _settings.VehicleConfig.PojazdyLista);
+                txtPojazdyLista.Text = vehicleList;  // Hidden field for backward compat
+                txtVehicleInput.Text = vehicleList;   // New unified input (visible)
             }
 
-            UpdateVehicleModeControls();
+            // Don't call UpdateVehicleModeControls() - old controls are hidden
         }
 
         private void SaveSettings()
@@ -242,10 +244,10 @@ namespace DB2ExportConfigurator
                 _settings.VehicleConfig = new VehicleConfig
                 {
                     KodExportu = txtKodExportu.Text,
-                    PojazdyMode = cmbPojazdyMode.SelectedItem?.ToString() ?? "lista",
-                    PojazdyStart = (int)numPojazdyStart.Value,
-                    PojazdyEnd = (int)numPojazdyEnd.Value,
-                    PojazdyLista = ParseVehicleList(txtPojazdyLista.Text)
+                    PojazdyMode = "lista",  // Always use "lista" mode now (unified interface)
+                    PojazdyStart = null,    // Deprecated - not used anymore
+                    PojazdyEnd = null,      // Deprecated - not used anymore
+                    PojazdyLista = ParseVehicleList(txtPojazdyLista.Text)  // Uses hidden field with selected vehicles
                 };
 
                 var json = JsonSerializer.Serialize(_settings, new JsonSerializerOptions
@@ -273,24 +275,95 @@ namespace DB2ExportConfigurator
             }
         }
 
-        private List<int> ParseVehicleList(string text)
+        /// <summary>
+        /// Parsuje mieszane wejście: zakresy i pojedyncze numery
+        /// Format: "100-120, 789, 900-905"
+        /// Zwraca: (List<int> numbers, List<string> errors)
+        /// </summary>
+        private (List<int> numbers, List<string> errors) ParseVehicleInput(string text)
         {
             var result = new List<int>();
-            if (string.IsNullOrWhiteSpace(text)) return result;
+            var errors = new List<string>();
+            var seen = new HashSet<int>();
 
-            var parts = text.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (string.IsNullOrWhiteSpace(text))
+                return (result, errors);
+
+            var parts = text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
             foreach (var part in parts)
             {
-                if (int.TryParse(part.Trim(), out int vehicleId))
+                var trimmed = part.Trim();
+
+                // Obsługa zakresu (np. "100-120")
+                if (trimmed.Contains("-"))
                 {
-                    result.Add(vehicleId);
+                    var rangeParts = trimmed.Split('-');
+                    if (rangeParts.Length != 2)
+                    {
+                        errors.Add($"Nieprawidłowy zakres: '{trimmed}'");
+                        continue;
+                    }
+
+                    if (!int.TryParse(rangeParts[0].Trim(), out int start) ||
+                        !int.TryParse(rangeParts[1].Trim(), out int end))
+                    {
+                        errors.Add($"Nieprawidłowe wartości w zakresie: '{trimmed}'");
+                        continue;
+                    }
+
+                    if (start > end)
+                    {
+                        errors.Add($"Zakres odwrotny: '{trimmed}'");
+                        continue;
+                    }
+
+                    if (end - start > 1000)
+                    {
+                        errors.Add($"Zakres zbyt duży: '{trimmed}' (max 1000)");
+                        continue;
+                    }
+
+                    // Rozwiń zakres
+                    for (int i = start; i <= end; i++)
+                    {
+                        if (seen.Add(i))
+                            result.Add(i);
+                    }
+                }
+                else
+                {
+                    // Pojedynczy numer
+                    if (int.TryParse(trimmed, out int num))
+                    {
+                        if (seen.Add(num))
+                            result.Add(num);
+                    }
+                    else
+                    {
+                        errors.Add($"Nieprawidłowy numer: '{trimmed}'");
+                    }
                 }
             }
-            return result;
+
+            result.Sort();
+            return (result, errors);
         }
 
+        // Backward compatibility wrapper
+        private List<int> ParseVehicleList(string text)
+        {
+            var (numbers, _) = ParseVehicleInput(text);
+            return numbers;
+        }
+
+        // DEPRECATED: No longer needed with unified vehicle input interface
+        // Old mode controls (cmbPojazdyMode, numPojazdyStart, numPojazdyEnd) are now hidden
+        // Kept for backward compatibility only
+        [Obsolete("This method is no longer used. Old mode controls are hidden.")]
         private void UpdateVehicleModeControls()
         {
+            // Method body kept for backward compatibility but not called
             var mode = cmbPojazdyMode.SelectedItem?.ToString() ?? "lista";
 
             if (mode == "lista")
@@ -305,6 +378,150 @@ namespace DB2ExportConfigurator
                 numPojazdyStart.Enabled = true;
                 numPojazdyEnd.Enabled = true;
             }
+        }
+
+        /// <summary>
+        /// Handler dla przycisku "Pobierz pojazdy" - parsuje input i pobiera z bazy
+        /// </summary>
+        private async void BtnParseAndFetch_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                btnParseAndFetch.Enabled = false;
+                lblParseStatus.ForeColor = Color.Blue;
+                lblParseStatus.Text = "Parsowanie...";
+
+                var (numbers, errors) = ParseVehicleInput(txtVehicleInput.Text);
+
+                if (errors.Any())
+                {
+                    lblParseStatus.ForeColor = Color.Red;
+                    lblParseStatus.Text = $"Błędy: {errors.Count}";
+                    MessageBox.Show(
+                        $"Błędy parsowania:\n\n{string.Join("\n", errors)}",
+                        "Błąd", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (!numbers.Any())
+                {
+                    lblParseStatus.ForeColor = Color.Orange;
+                    lblParseStatus.Text = "Brak numerów do pobrania";
+                    return;
+                }
+
+                lblParseStatus.Text = $"Pobieranie {numbers.Count} pojazdów z bazy...";
+
+                // Pobierz z DB2
+                var db2Service = _serviceProvider.GetRequiredService<DB2ExportService.Services.IDB2Service>();
+                int minNb = numbers.Min();
+                int maxNb = numbers.Max();
+
+                var allVehicles = await db2Service.GetVehiclesAsync(minNb, maxNb, null);
+                var matchedVehicles = allVehicles.Where(v => numbers.Contains(v.NB)).ToList();
+
+                if (!matchedVehicles.Any())
+                {
+                    lblParseStatus.ForeColor = Color.Orange;
+                    lblParseStatus.Text = "Nie znaleziono pojazdów w bazie";
+                    MessageBox.Show(
+                        "Żaden z podanych numerów pojazdów nie został znaleziony w bazie danych.",
+                        "Brak wyników",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                    return;
+                }
+
+                // Wypełnij DataGridView
+                PopulateVehicleGrid(matchedVehicles);
+
+                var notFound = numbers.Except(matchedVehicles.Select(v => v.NB)).ToList();
+                lblParseStatus.ForeColor = Color.Green;
+                lblParseStatus.Text = $"Znaleziono {matchedVehicles.Count}/{numbers.Count} pojazdów" +
+                    (notFound.Any() ? $" (brak: {string.Join(", ", notFound.Take(5))}{(notFound.Count > 5 ? "..." : "")})" : "");
+            }
+            catch (Exception ex)
+            {
+                lblParseStatus.ForeColor = Color.Red;
+                lblParseStatus.Text = "Błąd pobierania";
+                _logger.LogError(ex, "Błąd podczas pobierania pojazdów");
+                MessageBox.Show($"Błąd:\n{ex.Message}", "Błąd", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnParseAndFetch.Enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// Wypełnia DataGridView pojazdami i auto-zaznacza te z MA_BRAMKI = 'Y' lub '1'
+        /// </summary>
+        private void PopulateVehicleGrid(List<VehicleInfo> vehicles)
+        {
+            dgvVehicles.Rows.Clear();
+
+            foreach (var vehicle in vehicles.OrderBy(v => v.NB))
+            {
+                // Auto-zaznacz jeśli MA_BRAMKI = 'Y' lub '1'
+                bool autoSelect = vehicle.MaBramki == "Y" || vehicle.MaBramki == "1";
+
+                var rowIndex = dgvVehicles.Rows.Add(
+                    autoSelect,              // Checkbox zaznaczony
+                    vehicle.NB,
+                    vehicle.NR,
+                    vehicle.TypPoj,
+                    vehicle.Zajezdnia,
+                    vehicle.MaBramki,
+                    vehicle.WGotowosci
+                );
+
+                // Podświetl auto-zaznaczone
+                if (autoSelect)
+                {
+                    dgvVehicles.Rows[rowIndex].DefaultCellStyle.BackColor = Color.LightGreen;
+                }
+            }
+
+            _logger.LogInformation(
+                "Wypełniono grid: {Count} pojazdów, {AutoSelected} z bramkami",
+                vehicles.Count,
+                vehicles.Count(v => v.MaBramki == "Y" || v.MaBramki == "1"));
+        }
+
+        /// <summary>
+        /// Handler dla przycisku "Zastosuj wybór" - zapisuje zaznaczone pojazdy
+        /// </summary>
+        private void BtnApplySelection_Click(object? sender, EventArgs e)
+        {
+            var selectedVehicles = new List<int>();
+
+            foreach (DataGridViewRow row in dgvVehicles.Rows)
+            {
+                if (row.Cells["Selected"].Value is bool isSelected && isSelected)
+                {
+                    if (row.Cells["NB"].Value is int nb)
+                        selectedVehicles.Add(nb);
+                }
+            }
+
+            if (!selectedVehicles.Any())
+            {
+                MessageBox.Show("Nie wybrano żadnych pojazdów!",
+                    "Uwaga", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Zapisz do ukrytego pola (backward compat)
+            txtPojazdyLista.Text = string.Join(", ", selectedVehicles.OrderBy(v => v));
+
+            MessageBox.Show(
+                $"Wybrano {selectedVehicles.Count} pojazdów.\n\n" +
+                $"Numery: {string.Join(", ", selectedVehicles.OrderBy(v => v).Take(10))}" +
+                (selectedVehicles.Count > 10 ? "..." : "") + "\n\n" +
+                "Pamiętaj o zapisaniu konfiguracji!",
+                "Sukces", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            _logger.LogInformation("Zastosowano wybór pojazdów: {Vehicles}", string.Join(", ", selectedVehicles));
         }
 
         private void UpdateServiceStatus()
@@ -565,16 +782,18 @@ namespace DB2ExportConfigurator
                     return;
                 }
 
-                // Wypełnij pole tekstowe listą pojazdów
-                txtPojazdyLista.Text = string.Join(", ", vehicles.Select(v => v.NB));
-                cmbPojazdyMode.SelectedItem = "lista";
+                // Wypełnij nowy unified input i ukryty txtPojazdyLista
+                var vehicleList = string.Join(", ", vehicles.Select(v => v.NB));
+                txtVehicleInput.Text = vehicleList;  // New unified input (visible)
+                txtPojazdyLista.Text = vehicleList;  // Hidden field (backward compat)
 
                 lblFetchStatus.Text = $"✓ Pobrano {vehicles.Count} pojazdów";
                 lblFetchStatus.ForeColor = Color.Green;
 
                 MessageBox.Show(
                     $"Pobrano {vehicles.Count} pojazdów z bazy danych.\n\n" +
-                    $"Lista została automatycznie wypełniona w polu 'Lista pojazdów'.\n" +
+                    $"Lista została automatycznie wypełniona.\n" +
+                    $"Kliknij 'Pobierz pojazdy' aby załadować szczegóły do tabeli.\n\n" +
                     $"Pamiętaj o zapisaniu konfiguracji!",
                     "Sukces",
                     MessageBoxButtons.OK,

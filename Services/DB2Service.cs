@@ -281,7 +281,9 @@ public class DB2Service : IDB2Service
         if (reader.IsDBNull(ordinal))
             return 0;
 
-        return reader.GetInt32(ordinal);
+        // DB2 DECIMAL columns need special handling
+        var value = reader.GetValue(ordinal);
+        return Convert.ToInt32(value);
     }
 
     private DateTime? GetDateTimeValue(IDataReader reader, string columnName)

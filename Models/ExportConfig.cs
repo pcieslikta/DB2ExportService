@@ -1,5 +1,15 @@
 namespace DB2ExportService.Models;
 
+/// <summary>
+/// Typy dostępnych eksportów
+/// </summary>
+public enum ExportType
+{
+    BramkiBasic,        // Podstawowe bramki (WS/WYS)
+    BramkiDetail,       // Szczegółowe 4 drzwi
+    Punktualnosc        // Placeholder na przyszłość
+}
+
 public class ExportConfig
 {
     public string KodExportu { get; set; } = string.Empty;
@@ -7,6 +17,37 @@ public class ExportConfig
     public string LogPath { get; set; } = "C:\\EXPORT\\LOG\\";
     public string ScheduleTime { get; set; } = "13:15";
     public int DaysBack { get; set; } = -2;
+
+    // Export Types Configuration
+    /// <summary>
+    /// Lista typów eksportu do wykonania
+    /// </summary>
+    public List<ExportType> EnabledExportTypes { get; set; } = new()
+    {
+        ExportType.BramkiBasic,
+        ExportType.BramkiDetail
+    };
+
+    // Periodic Monitoring
+    /// <summary>
+    /// Włącz periodic monitoring (sprawdzanie co X minut)
+    /// </summary>
+    public bool EnablePeriodicMonitoring { get; set; } = false;
+
+    /// <summary>
+    /// Interwal sprawdzania w minutach (default: 15 minut)
+    /// </summary>
+    public int MonitoringIntervalMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Ile dni wstecz sprawdzać podczas periodic monitoring
+    /// </summary>
+    public int MonitoringDaysBack { get; set; } = 7;
+
+    /// <summary>
+    /// Ścieżka do folderu z triggerami JSON dla ręcznego eksportu
+    /// </summary>
+    public string TriggerFolderPath { get; set; } = "C:\\Services\\DB2Export\\Triggers";
 
     // File management
     public bool EnableZipCompression { get; set; } = true;
@@ -49,9 +90,16 @@ public class DB2Config
 public class VehicleConfig
 {
     public string KodExportu { get; set; } = string.Empty;
-    public string PojazdyMode { get; set; } = "zakres"; // "zakres" lub "lista"
+
+    [Obsolete("Używaj PojazdyLista. Pole zachowane dla kompatybilności wstecznej.")]
+    public string PojazdyMode { get; set; } = "lista"; // Always "lista" with unified interface
+
+    [Obsolete("Używaj PojazdyLista. Pole zachowane dla kompatybilności wstecznej.")]
     public int? PojazdyStart { get; set; }
+
+    [Obsolete("Używaj PojazdyLista. Pole zachowane dla kompatybilności wstecznej.")]
     public int? PojazdyEnd { get; set; }
+
     public List<int> PojazdyLista { get; set; } = new();
 }
 

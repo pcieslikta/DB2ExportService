@@ -1,9 +1,6 @@
-using System.Globalization;
-using System.Text;
-using CsvHelper;
-using CsvHelper.Configuration;
 using DB2ExportService.Configuration;
 using DB2ExportService.Models;
+using DB2ExportService.Services.Exporters;
 using Microsoft.Extensions.Logging;
 
 namespace DB2ExportService.Services;
@@ -14,18 +11,21 @@ public class ExportService
     private readonly IDB2Service _db2Service;
     private readonly ChangeDetectionService _changeDetectionService;
     private readonly ConfigurationHelper _configHelper;
+    private readonly ExportTypeRegistry _exportRegistry;
     private readonly string _exportPath;
 
     public ExportService(
         ILogger<ExportService> logger,
         IDB2Service db2Service,
         ChangeDetectionService changeDetectionService,
-        ConfigurationHelper configHelper)
+        ConfigurationHelper configHelper,
+        ExportTypeRegistry exportRegistry)
     {
         _logger = logger;
         _db2Service = db2Service;
         _changeDetectionService = changeDetectionService;
         _configHelper = configHelper;
+        _exportRegistry = exportRegistry;
 
         var config = _configHelper.GetExportConfig();
         _exportPath = config.ExportPath;
@@ -38,207 +38,221 @@ public class ExportService
         }
     }
 
-    public async Task RunExportAsync()
+    /// <summary>
+    /// Główna metoda eksportu - scheduled daily export
+    /// </summary>
+    public async Task RunScheduledExportAsync()
     {
         try
         {
-            _logger.LogInformation("=== Rozpoczęcie eksportu danych ===");
+            _logger.LogInformation("=== Rozpoczęcie zaplanowanego eksportu ===");
 
             var exportConfig = _configHelper.GetExportConfig();
             var vehicleConfig = _configHelper.GetVehicleConfig();
 
-            var kodExportu = vehicleConfig.KodExportu.ToUpper();
-            _logger.LogInformation("Kod eksportu: {KodExportu}", kodExportu);
+            var enabledTypes = exportConfig.EnabledExportTypes;
+            _logger.LogInformation("Włączone typy eksportu: {Types}", string.Join(", ", enabledTypes));
 
             // Eksport dla zakresu dni wstecz
-            for (int daysBack = exportConfig.DaysBack; daysBack < -1; daysBack++)
+            for (int daysBack = exportConfig.DaysBack; daysBack <= -1; daysBack++)
             {
                 var targetDate = DateTime.Today.AddDays(daysBack);
                 _logger.LogInformation("--- Eksport dla dnia: {Date} (dni wstecz: {DaysBack}) ---",
                     targetDate.ToString("yyyy-MM-dd"), daysBack);
 
-                // Eksport BRAMKI (podstawowy)
-                await ExportBramkiAsync(targetDate, vehicleConfig);
+                await RunExportsForDateAsync(targetDate, enabledTypes, vehicleConfig);
+            }
 
-                // Eksport BRAMKID (szczegółowy) - tylko dla SOSNO
-                if (kodExportu == "SOSNO")
+            _logger.LogInformation("=== Zaplanowany eksport zakończony ===");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Błąd podczas zaplanowanego eksportu");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Periodic monitoring - sprawdza ostatnie N dni
+    /// </summary>
+    public async Task RunPeriodicMonitoringAsync()
+    {
+        try
+        {
+            _logger.LogInformation("=== Rozpoczęcie periodic monitoring ===");
+
+            var exportConfig = _configHelper.GetExportConfig();
+            var vehicleConfig = _configHelper.GetVehicleConfig();
+
+            _logger.LogInformation("Sprawdzanie ostatnich {Days} dni", exportConfig.MonitoringDaysBack);
+
+            var enabledTypes = exportConfig.EnabledExportTypes;
+
+            // Sprawdź ostatnie N dni
+            for (int daysBack = 0; daysBack >= -exportConfig.MonitoringDaysBack; daysBack--)
+            {
+                var targetDate = DateTime.Today.AddDays(daysBack);
+
+                await RunExportsForDateAsync(targetDate, enabledTypes, vehicleConfig);
+            }
+
+            _logger.LogInformation("=== Periodic monitoring zakończony ===");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Błąd podczas periodic monitoring");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Ręczny eksport z parametrami z JSON
+    /// </summary>
+    public async Task RunManualExportAsync(ManualExportRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("=== Rozpoczęcie ręcznego eksportu ===");
+            _logger.LogInformation("Typy: {Types}, Dni: {Days}",
+                string.Join(", ", request.ExportTypes), request.DaysCount);
+
+            // Określ pojazdy
+            VehicleConfig vehicleConfig;
+            if (request.VehicleList != null && request.VehicleList.Any())
+            {
+                vehicleConfig = new VehicleConfig
                 {
-                    await ExportBramkiDetailAsync(targetDate, vehicleConfig);
+                    KodExportu = _configHelper.GetVehicleConfig().KodExportu,
+                    PojazdyLista = request.VehicleList
+                };
+                _logger.LogInformation("Użyto listy pojazdów z triggera: {Count} pojazdów", request.VehicleList.Count);
+            }
+            else if (!string.IsNullOrEmpty(request.VehicleRange))
+            {
+                vehicleConfig = new VehicleConfig
+                {
+                    KodExportu = _configHelper.GetVehicleConfig().KodExportu,
+                    PojazdyLista = ParseVehicleRange(request.VehicleRange)
+                };
+                _logger.LogInformation("Sparsowano zakres pojazdów: {Range} → {Count} pojazdów",
+                    request.VehicleRange, vehicleConfig.PojazdyLista.Count);
+            }
+            else
+            {
+                vehicleConfig = _configHelper.GetVehicleConfig();
+                _logger.LogInformation("Użyto konfiguracji domyślnej pojazdów");
+            }
+
+            // Określ start date
+            var startDate = request.StartDate ?? DateTime.Today;
+
+            // Eksportuj dla każdego dnia
+            for (int day = 0; day < request.DaysCount; day++)
+            {
+                var targetDate = startDate.AddDays(-day);
+
+                await RunExportsForDateAsync(targetDate, request.ExportTypes, vehicleConfig,
+                    skipChangeDetection: true); // Ręczny eksport ignoruje change detection
+            }
+
+            _logger.LogInformation("=== Ręczny eksport zakończony ===");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Błąd podczas ręcznego eksportu");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Wykonuje wszystkie typy eksportów dla danej daty
+    /// </summary>
+    private async Task RunExportsForDateAsync(
+        DateTime targetDate,
+        List<ExportType> exportTypes,
+        VehicleConfig vehicleConfig,
+        bool skipChangeDetection = false)
+    {
+        foreach (var exportType in exportTypes)
+        {
+            try
+            {
+                var exporter = _exportRegistry.GetExporter(exportType);
+
+                if (exporter != null)
+                {
+                    await exporter.ExportAsync(targetDate, vehicleConfig, skipChangeDetection);
+                }
+                else
+                {
+                    _logger.LogWarning("Brak exportera dla typu: {ExportType}", exportType);
                 }
             }
-
-            _logger.LogInformation("=== Eksport danych zakończony pomyślnie ===");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Błąd podczas wykonywania eksportu");
-            throw;
+            catch (NotImplementedException)
+            {
+                _logger.LogWarning("Eksport typu {ExportType} nie jest jeszcze zaimplementowany", exportType);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Błąd podczas eksportu typu {ExportType} dla dnia {Date}",
+                    exportType, targetDate.ToString("yyyy-MM-dd"));
+                // Nie przerywaj innych eksportów
+            }
         }
     }
 
-    private async Task ExportBramkiAsync(DateTime targetDate, VehicleConfig vehicleConfig)
+    /// <summary>
+    /// Parsuje zakres pojazdów w formacie "100-120, 789, 900-905"
+    /// </summary>
+    private List<int> ParseVehicleRange(string range)
     {
-        try
-        {
-            _logger.LogInformation("Rozpoczęcie eksportu BRAMKI dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
+        var result = new List<int>();
+        var seen = new HashSet<int>();
 
-            // Sprawdź liczbę rekordów
-            var recordCount = await _db2Service.GetRecordCountAsync(targetDate);
-            if (!await _changeDetectionService.ShouldExportAsync(targetDate, recordCount, "r_count"))
+        if (string.IsNullOrWhiteSpace(range))
+            return result;
+
+        var parts = range.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var part in parts)
+        {
+            var trimmed = part.Trim();
+
+            // Obsługa zakresu (np. "100-120")
+            if (trimmed.Contains("-"))
             {
-                _logger.LogInformation("Eksport BRAMKI pominięty dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-                return;
+                var rangeParts = trimmed.Split('-');
+                if (rangeParts.Length == 2 &&
+                    int.TryParse(rangeParts[0].Trim(), out int start) &&
+                    int.TryParse(rangeParts[1].Trim(), out int end))
+                {
+                    for (int i = start; i <= end; i++)
+                    {
+                        if (seen.Add(i))
+                            result.Add(i);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Nieprawidłowy zakres: {Range}", trimmed);
+                }
             }
-
-            // Pobierz dane
-            var data = await _db2Service.GetBramkiDataAsync(targetDate, vehicleConfig);
-            if (!data.Any())
+            else
             {
-                _logger.LogWarning("Brak danych do eksportu BRAMKI dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-                return;
-            }
-
-            // Zapisz do CSV
-            var fileName = $"BRAMKI_{targetDate:yyyy-MM-dd}.csv";
-            var filePath = Path.Combine(_exportPath, fileName);
-
-            await WriteCsvAsync(filePath, data, new[]
-            {
-                "DATA", "NR_POJAZDU", "NR_KURSU", "NR_KURSOWK", "LP_PRZYSTANKU",
-                "PRZYSTANEK", "SLUPEK_STANOWISKO", "KOD_PRZYSTANKU",
-                "CZAS_NA_PRZYSTANKU_ROZKLADOWY", "WS", "WYS", "NAPELN",
-                "NR_LINII", "ID_KURSU", "NR_WOZU"
-            });
-
-            _logger.LogInformation("Eksport BRAMKI zakończony: {FilePath} ({Count} rekordów)", filePath, data.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Błąd podczas eksportu BRAMKI dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-            throw;
-        }
-    }
-
-    private async Task ExportBramkiDetailAsync(DateTime targetDate, VehicleConfig vehicleConfig)
-    {
-        try
-        {
-            _logger.LogInformation("Rozpoczęcie eksportu BRAMKID dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-
-            // Sprawdź liczbę rekordów
-            var recordCount = await _db2Service.GetRecordCountAsync(targetDate);
-            if (!await _changeDetectionService.ShouldExportAsync(targetDate, recordCount, "r_countd"))
-            {
-                _logger.LogInformation("Eksport BRAMKID pominięty dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-                return;
-            }
-
-            // Pobierz dane
-            var data = await _db2Service.GetBramkiDetailDataAsync(targetDate, vehicleConfig);
-            if (!data.Any())
-            {
-                _logger.LogWarning("Brak danych do eksportu BRAMKID dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-                return;
-            }
-
-            // Zapisz do CSV
-            var fileName = $"BRAMKID_{targetDate:yyyy-MM-dd}.csv";
-            var filePath = Path.Combine(_exportPath, fileName);
-
-            await WriteCsvAsync(filePath, data, new[]
-            {
-                "DATA", "NR_POJAZDU", "NR LINII", "NR LINII/PLANU", "NR KURSU",
-                "LP PRZYST", "PRZYSTANEK", "CZAS NA PRZYSTANKU ROZKŁAD",
-                "Wejście Drzwi 1", "Wyjście Drzwi 1", "Wejście Drzwi 2", "Wyjście Drzwi 2",
-                "Wejście Drzwi 3", "Wyjście Drzwi 3", "Wejście Drzwi 4", "Wyjście Drzwi 4",
-                "WS (Wejścia Suma)", "WYS (Wyjścia Suma)", "NAPEŁN"
-            });
-
-            _logger.LogInformation("Eksport BRAMKID zakończony: {FilePath} ({Count} rekordów)", filePath, data.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Błąd podczas eksportu BRAMKID dla dnia {Date}", targetDate.ToString("yyyy-MM-dd"));
-            throw;
-        }
-    }
-
-    private async Task WriteCsvAsync<T>(string filePath, List<T> data, string[] headers)
-    {
-        // Użyj kodowania CP1250 dla polskich znaków
-        var encoding = Encoding.GetEncoding(1250);
-
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            Delimiter = ";",
-            Encoding = encoding,
-            HasHeaderRecord = true
-        };
-
-        await using var writer = new StreamWriter(filePath, false, encoding);
-        await using var csv = new CsvWriter(writer, config);
-
-        // Zapisz nagłówki
-        foreach (var header in headers)
-        {
-            csv.WriteField(header);
-        }
-        await csv.NextRecordAsync();
-
-        // Zapisz dane
-        foreach (var record in data)
-        {
-            if (record != null)
-            {
-                WriteRecord(csv, record);
-                await csv.NextRecordAsync();
+                // Pojedynczy numer
+                if (int.TryParse(trimmed, out int num))
+                {
+                    if (seen.Add(num))
+                        result.Add(num);
+                }
+                else
+                {
+                    _logger.LogWarning("Nieprawidłowy numer pojazdu: {Number}", trimmed);
+                }
             }
         }
 
-        _logger.LogDebug("Zapisano {Count} rekordów do pliku {FilePath}", data.Count, filePath);
-    }
-
-    private void WriteRecord(CsvWriter csv, object record)
-    {
-        if (record is BramkiData bramkiData)
-        {
-            csv.WriteField(bramkiData.Data.ToString("yyyy-MM-dd"));
-            csv.WriteField(bramkiData.NrPojazdu);
-            csv.WriteField(bramkiData.NrKursu);
-            csv.WriteField(bramkiData.NrKursowk);
-            csv.WriteField(bramkiData.LpPrzystanku);
-            csv.WriteField(bramkiData.Przystanek);
-            csv.WriteField(bramkiData.SlupekStanowisko);
-            csv.WriteField(bramkiData.KodPrzystanku);
-            csv.WriteField(bramkiData.CzasNaPrzystankuRozkladowy);
-            csv.WriteField(bramkiData.WS);
-            csv.WriteField(bramkiData.WYS);
-            csv.WriteField(bramkiData.Napeln);
-            csv.WriteField(bramkiData.NrLinii);
-            csv.WriteField(bramkiData.IdKursu);
-            csv.WriteField(bramkiData.NrWozu);
-        }
-        else if (record is BramkiDetailData detailData)
-        {
-            csv.WriteField(detailData.Data.ToString("yyyy-MM-dd"));
-            csv.WriteField(detailData.NrPojazdu);
-            csv.WriteField(detailData.NrLinii);
-            csv.WriteField(detailData.NrLiniiPlanu);
-            csv.WriteField(detailData.NrKursu);
-            csv.WriteField(detailData.LpPrzyst);
-            csv.WriteField(detailData.Przystanek);
-            csv.WriteField(detailData.CzasNaPrzystankuRozklad);
-            csv.WriteField(detailData.WejścieDrzwi1);
-            csv.WriteField(detailData.WyjścieDrzwi1);
-            csv.WriteField(detailData.WejścieDrzwi2);
-            csv.WriteField(detailData.WyjścieDrzwi2);
-            csv.WriteField(detailData.WejścieDrzwi3);
-            csv.WriteField(detailData.WyjścieDrzwi3);
-            csv.WriteField(detailData.WejścieDrzwi4);
-            csv.WriteField(detailData.WyjścieDrzwi4);
-            csv.WriteField(detailData.WS);
-            csv.WriteField(detailData.WYS);
-            csv.WriteField(detailData.Napełn);
-        }
+        result.Sort();
+        return result;
     }
 }

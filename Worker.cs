@@ -66,6 +66,30 @@ public class Worker : BackgroundService
 
             _logger.LogInformation("Zaplanowano eksport codziennie o {Hour:D2}:{Minute:D2}", hour, minute);
 
+            // Setup periodic monitoring (jeśli włączone)
+            if (exportConfig.EnablePeriodicMonitoring)
+            {
+                var monitoringJob = JobBuilder.Create<MonitoringJob>()
+                    .WithIdentity("MonitoringJob", "DB2Export")
+                    .Build();
+
+                var monitoringTrigger = TriggerBuilder.Create()
+                    .WithIdentity("PeriodicMonitoringTrigger", "DB2Export")
+                    .WithSimpleSchedule(x => x
+                        .WithIntervalInMinutes(exportConfig.MonitoringIntervalMinutes)
+                        .RepeatForever())
+                    .Build();
+
+                await _scheduler.ScheduleJob(monitoringJob, monitoringTrigger, stoppingToken);
+
+                _logger.LogInformation("Zaplanowano periodic monitoring co {Minutes} minut (sprawdzanie ostatnich {Days} dni)",
+                    exportConfig.MonitoringIntervalMinutes, exportConfig.MonitoringDaysBack);
+            }
+            else
+            {
+                _logger.LogInformation("Periodic monitoring wyłączony");
+            }
+
             // Uruchom scheduler
             await _scheduler.Start(stoppingToken);
 
@@ -123,12 +147,41 @@ public class ExportJob : IJob
 
         try
         {
-            await _exportService.RunExportAsync();
+            await _exportService.RunScheduledExportAsync();
             _logger.LogInformation("Zaplanowany eksport zakończony pomyślnie");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Błąd podczas wykonywania zaplanowanego eksportu");
+            // Nie rzucaj wyjątku - pozwól na kontynuację schedulingu
+        }
+    }
+}
+
+// Job dla periodic monitoring
+public class MonitoringJob : IJob
+{
+    private readonly ILogger<MonitoringJob> _logger;
+    private readonly ExportService _exportService;
+
+    public MonitoringJob(ILogger<MonitoringJob> logger, ExportService exportService)
+    {
+        _logger = logger;
+        _exportService = exportService;
+    }
+
+    public async Task Execute(IJobExecutionContext context)
+    {
+        _logger.LogInformation("Rozpoczęcie periodic monitoring o {Time}", DateTime.Now);
+
+        try
+        {
+            await _exportService.RunPeriodicMonitoringAsync();
+            _logger.LogInformation("Periodic monitoring zakończony");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Błąd podczas periodic monitoring");
             // Nie rzucaj wyjątku - pozwól na kontynuację schedulingu
         }
     }

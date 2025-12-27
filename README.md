@@ -19,9 +19,14 @@ Automatyczny eksport danych z bazy DB2 (RAPJAZDY) do plików CSV - implementacja
 
 ### Eksport danych:
 - **BRAMKI_*.csv** - podstawowe dane o przejazdach (przystawki, bramki, pasażerowie)
-- **BRAMKID_*.csv** - szczegółowe dane z podziałem na 4 drzwi (tylko dla kod_exportu = "SOSNO")
+- **BRAMKID_*.csv** - szczegółowe dane z podziałem na 4 drzwi
+- **Punktualność** - placeholder (przyszła implementacja)
 
 ### Cechy:
+- ✅ **Elastyczne typy eksportu** - wybór BramkiBasic, BramkiDetail, Punktualność w konfiguracji
+- ✅ **Periodic Monitoring** - automatyczne sprawdzanie co X minut i eksport jeśli są nowe dane
+- ✅ **Ręczne triggery JSON** - wrzuć plik JSON do folderu Triggers aby wywołać eksport
+- ✅ **Parametryzowane zakresy** - format "100-120, 789, 900-905" dla pojazdów
 - ✅ Automatyczne uruchamianie według harmonogramu (domyślnie: 13:15)
 - ✅ Sprawdzanie zmian liczby rekordów przed eksportem (optymalizacja)
 - ✅ Bezpieczne przechowywanie credentials (Windows Credential Manager)
@@ -29,7 +34,6 @@ Automatyczny eksport danych z bazy DB2 (RAPJAZDY) do plików CSV - implementacja
 - ✅ Auto-restart przy błędach (Windows Service Recovery)
 - ✅ Kodowanie CP1250 dla polskich znaków
 - ✅ Parametryzowane zapytania SQL (bez SQL injection)
-- ✅ **Graficzny konfigurator** - łatwa konfiguracja przez GUI
 
 ---
 
@@ -122,11 +126,22 @@ Skrypt:
 ```json
 {
   "ExportConfig": {
-    "KodExportu": "SOSNO",          // Kod eksportu (SOSNO = oba raporty)
-    "ExportPath": "C:\\EXPORT\\",   // Ścieżka eksportu CSV
-    "LogPath": "C:\\EXPORT\\LOG\\", // Ścieżka logów
-    "ScheduleTime": "13:15",        // Godzina uruchamiania (HH:mm)
-    "DaysBack": -2                   // Zakres dni wstecz
+    "KodExportu": "SOSNO",
+    "ExportPath": "C:\\EXPORT\\",
+    "LogPath": "C:\\EXPORT\\LOG\\",
+    "ScheduleTime": "13:15",        // Daily export o 13:15
+    "DaysBack": -2,                 // Zakres dni wstecz dla daily export
+
+    // NOWE: Elastyczne typy eksportu
+    "EnabledExportTypes": [ "BramkiBasic", "BramkiDetail" ],  // Wybierz typy
+
+    // NOWE: Periodic Monitoring
+    "EnablePeriodicMonitoring": false,       // Włącz sprawdzanie co X minut
+    "MonitoringIntervalMinutes": 15,         // Co ile minut sprawdzać
+    "MonitoringDaysBack": 7,                 // Ile dni wstecz aktualizować
+
+    // NOWE: Ręczne triggery
+    "TriggerFolderPath": "C:\\Services\\DB2Export\\Triggers"  // Folder JSON
   },
   "VehicleConfig": {
     "KodExportu": "SOSNO",
@@ -153,8 +168,79 @@ Skrypt:
 Edytuj `"ScheduleTime": "13:15"` i zrestartuj serwis.
 
 **Zmiana zakresu pojazdów:**
-- **Tryb lista:** Edytuj `"PojazdyLista"` i ustaw `"PojazdyMode": "lista"`
-- **Tryb zakres:** Ustaw `"PojazdyStart"` i `"PojazdyEnd"`, oraz `"PojazdyMode": "zakres"`
+- **Format mieszany:** Użyj `"PojazdyLista": [100, 101, 102, 200-220, 789]` - wspiera zakresy!
+- **Tryb lista:** Edytuj `"PojazdyLista"` - np. `[598, 599, 600]`
+
+**Wybór typów eksportu:**
+- `"BramkiBasic"` - podstawowe dane WS/WYS
+- `"BramkiDetail"` - szczegółowe 4 drzwi
+- `"Punktualnosc"` - przyszła implementacja
+
+**Periodic Monitoring:**
+- Ustaw `"EnablePeriodicMonitoring": true`
+- Konfiguruj `MonitoringIntervalMinutes` (default: 15 min)
+- Ustawmonitoruj `MonitoringDaysBack` (default: 7 dni)
+
+---
+
+## 🔥 Ręczne Triggery JSON
+
+### Jak wywołać ręczny eksport?
+
+1. Utwórz plik JSON w folderze: `C:\Services\DB2Export\Triggers\`
+2. Serwis wykryje plik i uruchomi eksport
+3. Plik zostanie przeniesiony do `processed/` po zakończeniu
+
+### Przykład triggera:
+
+**Plik:** `C:\Services\DB2Export\Triggers\manual-export.json`
+
+```json
+{
+  "scheduledTime": null,
+  "exportTypes": ["BramkiBasic", "BramkiDetail"],
+  "vehicleRange": "100-120, 789, 900-905",
+  "daysCount": 3,
+  "startDate": "2024-01-15"
+}
+```
+
+**Parametry:**
+- `scheduledTime`: Opcjonalnie - godzina wykonania (null = natychmiast)
+- `exportTypes`: Lista typów do eksportu
+- `vehicleRange`: Zakres pojazdów (alternatywa dla vehicleList)
+- `vehicleList`: Lista konkretnych pojazdów (alternatywa dla vehicleRange)
+- `daysCount`: Ile dni wstecz eksportować (default: 1)
+- `startDate`: Data początkowa (null = dzisiaj)
+
+### Scenariusze użycia:
+
+**1. Eksport za ostatnie 5 dni:**
+```json
+{
+  "exportTypes": ["BramkiBasic"],
+  "daysCount": 5
+}
+```
+
+**2. Eksport dla konkretnych pojazdów:**
+```json
+{
+  "exportTypes": ["BramkiBasic", "BramkiDetail"],
+  "vehicleList": [100, 101, 102, 789],
+  "daysCount": 1
+}
+```
+
+**3. Eksport za konkretny dzień:**
+```json
+{
+  "exportTypes": ["BramkiDetail"],
+  "vehicleRange": "2209-2238",
+  "daysCount": 1,
+  "startDate": "2024-01-15"
+}
+```
 
 ---
 

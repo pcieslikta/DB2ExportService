@@ -1,0 +1,7 @@
+{
+  "scheduledTime": null,
+  "exportTypes": ["BramkiBasic", "BramkiDetail"],
+  "vehicleRange": "100-120, 789, 900-905",
+  "daysCount": 3,
+  "startDate": "2024-01-15"
+}
