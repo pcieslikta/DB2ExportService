@@ -65,11 +65,60 @@ public class ConfigurationHelper
 
     public ExportConfig GetExportConfig()
     {
-        var config = _configuration.GetSection("ExportConfig").Get<ExportConfig>();
+        _logger?.LogDebug("Pobieranie konfiguracji ExportConfig z sekcji: ExportConfig");
+
+        var section = _configuration.GetSection("ExportConfig");
+
+        // Debug: zobacz co jest w sekcji
+        var enabledTypesRaw = section.GetSection("EnabledExportTypes").Get<List<string>>();
+        _logger?.LogInformation("EnabledExportTypes RAW z JSON: {Types}",
+            enabledTypesRaw != null ? string.Join(", ", enabledTypesRaw) : "NULL");
+
+        var config = section.Get<ExportConfig>();
         if (config == null)
         {
             throw new InvalidOperationException("Brak konfiguracji ExportConfig");
         }
+
+        // POPRAWKA: Zawsze parsuj ręcznie EnabledExportTypes, ponieważ System.Text.Json
+        // nie deserializuje automatycznie enumów ze stringów JSON bez JsonStringEnumConverter
+        if (enabledTypesRaw != null && enabledTypesRaw.Count > 0)
+        {
+            _logger?.LogInformation("Ręczne parsowanie EnabledExportTypes z {Count} elementów", enabledTypesRaw.Count);
+            config.EnabledExportTypes.Clear(); // Wyczyść wartości domyślne
+
+            foreach (var typeStr in enabledTypesRaw)
+            {
+                if (Enum.TryParse<ExportType>(typeStr, ignoreCase: true, out var exportType))
+                {
+                    config.EnabledExportTypes.Add(exportType);
+                    _logger?.LogInformation("  ✓ Sparsowano: {TypeString} → {ExportType}", typeStr, exportType);
+                }
+                else
+                {
+                    _logger?.LogError("  ✗ Nie można sparsować typu: '{Type}'. Dostępne wartości: {ValidValues}",
+                        typeStr, string.Join(", ", Enum.GetNames<ExportType>()));
+                }
+            }
+        }
+        else
+        {
+            _logger?.LogWarning("EnabledExportTypes RAW jest NULL lub pusta! Sprawdź format JSON.");
+        }
+
+        _logger?.LogInformation("ExportConfig załadowany:");
+        _logger?.LogInformation("  EnabledExportTypes ({Count}): {Types}",
+            config.EnabledExportTypes.Count, string.Join(", ", config.EnabledExportTypes));
+        _logger?.LogInformation("  DaysBack: {DaysBack}", config.DaysBack);
+        _logger?.LogInformation("  ExportPath: {ExportPath}", config.ExportPath);
+        _logger?.LogInformation("  EnablePeriodicMonitoring: {Enabled}", config.EnablePeriodicMonitoring);
+        _logger?.LogInformation("  MonitoringIntervalMinutes: {Interval}", config.MonitoringIntervalMinutes);
+
+        if (config.EnabledExportTypes.Count == 0)
+        {
+            _logger?.LogError("BŁĄD KRYTYCZNY: EnabledExportTypes jest pusta! Brak eksportów do wykonania. Sprawdź appsettings.json!");
+        }
+
         return config;
     }
 
@@ -103,10 +152,10 @@ public class ConfigurationHelper
                     var username = Marshal.PtrToStringUni(credential.UserName) ?? string.Empty;
                     var passwordBytes = new byte[credential.CredentialBlobSize];
                     Marshal.Copy(credential.CredentialBlob, passwordBytes, 0, credential.CredentialBlobSize);
-                    var password = Encoding.Unicode.GetString(passwordBytes);
+                    var password = Encoding.Unicode.GetString(passwordBytes) ?? string.Empty;
 
                     _logger?.LogDebug("Credentials zdekodowane. Username: {Username}, Password length: {Length}",
-                        username, password?.Length ?? 0);
+                        username, password.Length);
 
                     return new CredentialInfo
                     {

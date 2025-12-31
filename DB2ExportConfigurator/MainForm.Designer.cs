@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
+#pragma warning disable CS8669 // Nullable annotations in generated code
 namespace DB2ExportConfigurator
 {
     partial class MainForm
@@ -63,6 +64,18 @@ namespace DB2ExportConfigurator
         private CheckBox chkEnableMetrics;
         private CheckBox chkEnableEmailNotifications;
         private TextBox txtNotificationEmail;
+
+        // Export Controls - Periodic Monitoring & Triggers
+        private CheckBox chkEnablePeriodicMonitoring;
+        private NumericUpDown numMonitoringIntervalMinutes;
+        private NumericUpDown numMonitoringDaysBack;
+        private TextBox txtTriggerFolderPath;
+        private Button btnBrowseTriggerFolder;
+
+        // Export Controls - Enabled Export Types
+        private CheckBox chkExportTypeBramkiBasic;
+        private CheckBox chkExportTypeBramkiDetail;
+        private CheckBox chkExportTypePunktualnosc;
 
         // Vehicles Controls - Old (deprecated, kept for compatibility)
         private ComboBox cmbPojazdyMode;
@@ -683,6 +696,153 @@ namespace DB2ExportConfigurator
             });
             panelExport.Controls.Add(grpMonitoring);
             y += 160;
+
+            // === PERIODIC MONITORING & TRIGGERS ===
+            y += 10; // Odstęp od poprzedniej sekcji
+
+            var grpPeriodicMonitoring = new GroupBox
+            {
+                Text = "Periodic Monitoring & Triggery",
+                Location = new Point(20, y),
+                Size = new Size(750, 200),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            chkEnablePeriodicMonitoring = new CheckBox
+            {
+                Text = "Włącz periodic monitoring (sprawdzanie co X minut)",
+                Location = new Point(20, 30),
+                Size = new Size(400, 25),
+                Checked = false,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpPeriodicMonitoring.Controls.Add(chkEnablePeriodicMonitoring);
+
+            var lblMonitoringInterval = new Label
+            {
+                Text = "Interwał monitorowania (min):",
+                Location = new Point(20, 65),
+                Size = new Size(200, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpPeriodicMonitoring.Controls.Add(lblMonitoringInterval);
+
+            numMonitoringIntervalMinutes = new NumericUpDown
+            {
+                Location = new Point(230, 62),
+                Size = new Size(100, 25),
+                Minimum = 1,
+                Maximum = 1440,
+                Value = 15,
+                Enabled = false
+            };
+            grpPeriodicMonitoring.Controls.Add(numMonitoringIntervalMinutes);
+
+            var lblMonitoringDaysBack = new Label
+            {
+                Text = "Sprawdzaj ostatnie N dni:",
+                Location = new Point(20, 95),
+                Size = new Size(200, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpPeriodicMonitoring.Controls.Add(lblMonitoringDaysBack);
+
+            numMonitoringDaysBack = new NumericUpDown
+            {
+                Location = new Point(230, 92),
+                Size = new Size(100, 25),
+                Minimum = 1,
+                Maximum = 30,
+                Value = 7,
+                Enabled = false
+            };
+            grpPeriodicMonitoring.Controls.Add(numMonitoringDaysBack);
+
+            var lblTriggerFolder = new Label
+            {
+                Text = "Folder triggerów JSON:",
+                Location = new Point(20, 125),
+                Size = new Size(200, 20),
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpPeriodicMonitoring.Controls.Add(lblTriggerFolder);
+
+            txtTriggerFolderPath = new TextBox
+            {
+                Location = new Point(230, 122),
+                Size = new Size(350, 25),
+                Font = new Font("Segoe UI", 9F),
+                Text = @"C:\Services\DB2Export\Triggers"
+            };
+            grpPeriodicMonitoring.Controls.Add(txtTriggerFolderPath);
+
+            btnBrowseTriggerFolder = new Button
+            {
+                Text = "...",
+                Location = new Point(590, 122),
+                Size = new Size(40, 25)
+            };
+            btnBrowseTriggerFolder.Click += (s, e) =>
+            {
+                using var dialog = new FolderBrowserDialog();
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    txtTriggerFolderPath.Text = dialog.SelectedPath;
+                }
+            };
+            grpPeriodicMonitoring.Controls.Add(btnBrowseTriggerFolder);
+
+            // Enable/Disable controls
+            chkEnablePeriodicMonitoring.CheckedChanged += (s, e) =>
+            {
+                numMonitoringIntervalMinutes.Enabled = chkEnablePeriodicMonitoring.Checked;
+                numMonitoringDaysBack.Enabled = chkEnablePeriodicMonitoring.Checked;
+            };
+
+            panelExport.Controls.Add(grpPeriodicMonitoring);
+            y += 210;
+
+            // === ENABLED EXPORT TYPES ===
+            var grpEnabledExportTypes = new GroupBox
+            {
+                Text = "Włączone typy eksportu",
+                Location = new Point(20, y),
+                Size = new Size(750, 100),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+
+            chkExportTypeBramkiBasic = new CheckBox
+            {
+                Text = "BramkiBasic (WS/WYS)",
+                Location = new Point(20, 30),
+                Size = new Size(200, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpEnabledExportTypes.Controls.Add(chkExportTypeBramkiBasic);
+
+            chkExportTypeBramkiDetail = new CheckBox
+            {
+                Text = "BramkiDetail (4 drzwi)",
+                Location = new Point(20, 60),
+                Size = new Size(200, 25),
+                Checked = true,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpEnabledExportTypes.Controls.Add(chkExportTypeBramkiDetail);
+
+            chkExportTypePunktualnosc = new CheckBox
+            {
+                Text = "Punktualność (placeholder)",
+                Location = new Point(240, 30),
+                Size = new Size(250, 25),
+                Checked = false,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpEnabledExportTypes.Controls.Add(chkExportTypePunktualnosc);
+
+            panelExport.Controls.Add(grpEnabledExportTypes);
+            y += 110;
 
             contentPanel.Controls.Add(panelExport);
         }

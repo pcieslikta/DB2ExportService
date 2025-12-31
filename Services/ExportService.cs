@@ -51,14 +51,27 @@ public class ExportService
             var vehicleConfig = _configHelper.GetVehicleConfig();
 
             var enabledTypes = exportConfig.EnabledExportTypes;
-            _logger.LogInformation("Włączone typy eksportu: {Types}", string.Join(", ", enabledTypes));
+            _logger.LogInformation("Konfiguracja DaysBack: {DaysBack}", exportConfig.DaysBack);
+            _logger.LogInformation("Włączone typy eksportu ({Count}): {Types}",
+                enabledTypes.Count, string.Join(", ", enabledTypes));
+
+            if (enabledTypes.Count == 0)
+            {
+                _logger.LogWarning("UWAGA: Lista EnabledExportTypes jest pusta! Brak eksportów do wykonania.");
+                return;
+            }
 
             // Eksport dla zakresu dni wstecz
-            for (int daysBack = exportConfig.DaysBack; daysBack <= -1; daysBack++)
+            // DaysBack = -2 oznacza "eksportuj ostatnie 2 dni" (dzisiaj i wczoraj)
+            // DaysBack = -7 oznacza "eksportuj ostatnie 7 dni" (dzisiaj i 6 dni wstecz)
+            var daysToExport = Math.Abs(exportConfig.DaysBack);
+            _logger.LogInformation("Eksport będzie wykonany dla ostatnich {Days} dni (od dzisiaj wstecz)", daysToExport);
+
+            for (int i = 0; i < daysToExport; i++)
             {
-                var targetDate = DateTime.Today.AddDays(daysBack);
-                _logger.LogInformation("--- Eksport dla dnia: {Date} (dni wstecz: {DaysBack}) ---",
-                    targetDate.ToString("yyyy-MM-dd"), daysBack);
+                var targetDate = DateTime.Today.AddDays(-i);
+                _logger.LogInformation("--- Eksport dla dnia: {Date} (dzień {Index}/{Total}) ---",
+                    targetDate.ToString("yyyy-MM-dd"), i + 1, daysToExport);
 
                 await RunExportsForDateAsync(targetDate, enabledTypes, vehicleConfig);
             }
@@ -84,14 +97,16 @@ public class ExportService
             var exportConfig = _configHelper.GetExportConfig();
             var vehicleConfig = _configHelper.GetVehicleConfig();
 
-            _logger.LogInformation("Sprawdzanie ostatnich {Days} dni", exportConfig.MonitoringDaysBack);
+            _logger.LogInformation("Sprawdzanie ostatnich {Days} dni (od dzisiaj wstecz)", exportConfig.MonitoringDaysBack);
 
             var enabledTypes = exportConfig.EnabledExportTypes;
 
-            // Sprawdź ostatnie N dni
-            for (int daysBack = 0; daysBack >= -exportConfig.MonitoringDaysBack; daysBack--)
+            // Sprawdź ostatnie N dni (od dzisiaj wstecz)
+            for (int i = 0; i < exportConfig.MonitoringDaysBack; i++)
             {
-                var targetDate = DateTime.Today.AddDays(daysBack);
+                var targetDate = DateTime.Today.AddDays(-i);
+                _logger.LogInformation("--- Monitoring dla dnia: {Date} (dzień {Index}/{Total}) ---",
+                    targetDate.ToString("yyyy-MM-dd"), i + 1, exportConfig.MonitoringDaysBack);
 
                 await RunExportsForDateAsync(targetDate, enabledTypes, vehicleConfig);
             }
@@ -173,14 +188,19 @@ public class ExportService
         VehicleConfig vehicleConfig,
         bool skipChangeDetection = false)
     {
+        _logger.LogInformation("RunExportsForDateAsync - typy do eksportu ({Count}): {Types}",
+            exportTypes.Count, string.Join(", ", exportTypes));
+
         foreach (var exportType in exportTypes)
         {
             try
             {
+                _logger.LogInformation(">>> Przetwarzanie typu eksportu: {ExportType}", exportType);
                 var exporter = _exportRegistry.GetExporter(exportType);
 
                 if (exporter != null)
                 {
+                    _logger.LogInformation("Znaleziono exporter dla typu: {ExportType}, rozpoczynam eksport...", exportType);
                     await exporter.ExportAsync(targetDate, vehicleConfig, skipChangeDetection);
                 }
                 else
@@ -203,6 +223,10 @@ public class ExportService
 
     /// <summary>
     /// Parsuje zakres pojazdów w formacie "100-120, 789, 900-905"
+    /// Obsługuje:
+    /// - Automatyczną zamianę zakresów wstecznych (200-100 → 100-200)
+    /// - Maksymalny limit 10000 elementów (zabezpieczenie DoS)
+    /// - Szczegółowe logowanie błędów
     /// </summary>
     private List<int> ParseVehicleRange(string range)
     {
@@ -210,40 +234,88 @@ public class ExportService
         var seen = new HashSet<int>();
 
         if (string.IsNullOrWhiteSpace(range))
+        {
+            _logger.LogWarning("ParseVehicleRange: Pusty zakres pojazdów");
             return result;
+        }
 
         var parts = range.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        _logger.LogDebug("ParseVehicleRange: Parsowanie {Count} części", parts.Length);
 
         foreach (var part in parts)
         {
             var trimmed = part.Trim();
 
-            // Obsługa zakresu (np. "100-120")
             if (trimmed.Contains("-"))
             {
-                var rangeParts = trimmed.Split('-');
-                if (rangeParts.Length == 2 &&
-                    int.TryParse(rangeParts[0].Trim(), out int start) &&
-                    int.TryParse(rangeParts[1].Trim(), out int end))
+                var rangeParts = trimmed.Split('-', StringSplitOptions.RemoveEmptyEntries);
+
+                if (rangeParts.Length != 2)
                 {
-                    for (int i = start; i <= end; i++)
+                    _logger.LogWarning("Nieprawidłowy zakres (zbyt wiele '-'): {Range}", trimmed);
+                    continue;
+                }
+
+                if (!int.TryParse(rangeParts[0].Trim(), out int start) ||
+                    !int.TryParse(rangeParts[1].Trim(), out int end))
+                {
+                    _logger.LogWarning("Nieprawidłowe wartości w zakresie: {Range}", trimmed);
+                    continue;
+                }
+
+                // AUTO-SWAP: zakresy wsteczne
+                if (start > end)
+                {
+                    _logger.LogInformation("Zakres wsteczny: {Original} → zamiana na {Start}-{End}",
+                        trimmed, end, start);
+                    (start, end) = (end, start);
+                }
+
+                // LIMIT DoS: max 10000 elementów w zakresie
+                int rangeSize = end - start + 1;
+                if (rangeSize > 10000)
+                {
+                    _logger.LogError("Zakres zbyt duży: {Range} ({Size} elementów). Max: 10000. Pominięto.",
+                        trimmed, rangeSize);
+                    continue;
+                }
+
+                // LIMIT globalny: sprawdź przed dodaniem
+                if (result.Count + rangeSize > 10000)
+                {
+                    _logger.LogError("Przekroczenie limitu 10000 pojazdów. Obecna liczba: {Current}, próba dodania: {Additional}. Pominięto: {Range}",
+                        result.Count, rangeSize, trimmed);
+                    continue;
+                }
+
+                // Rozwiń zakres
+                int addedCount = 0;
+                for (int i = start; i <= end; i++)
+                {
+                    if (seen.Add(i))
                     {
-                        if (seen.Add(i))
-                            result.Add(i);
+                        result.Add(i);
+                        addedCount++;
                     }
                 }
-                else
-                {
-                    _logger.LogWarning("Nieprawidłowy zakres: {Range}", trimmed);
-                }
+
+                _logger.LogDebug("Zakres {Range} → dodano {Added} pojazdów", trimmed, addedCount);
             }
             else
             {
                 // Pojedynczy numer
                 if (int.TryParse(trimmed, out int num))
                 {
+                    if (result.Count >= 10000)
+                    {
+                        _logger.LogError("Przekroczenie limitu 10000 pojazdów. Pominięto: {Number}", num);
+                        continue;
+                    }
+
                     if (seen.Add(num))
+                    {
                         result.Add(num);
+                    }
                 }
                 else
                 {
@@ -253,6 +325,8 @@ public class ExportService
         }
 
         result.Sort();
+        _logger.LogInformation("ParseVehicleRange: Sparsowano {Total} unikalnych pojazdów", result.Count);
+
         return result;
     }
 }

@@ -10,7 +10,10 @@ using Serilog.Events;
 // Rejestracja dostawcy kodowania dla CP1250 (polskie znaki)
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-// Konfiguracja Serilog
+// Konfiguracja Serilog - logowanie do podkatalogu "logs"
+var logDirectory = Path.Combine(AppContext.BaseDirectory, "logs");
+Directory.CreateDirectory(logDirectory);
+
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
@@ -19,7 +22,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.Console(
         outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .WriteTo.File(
-        path: @"C:\EXPORT\LOG\export_service_.log",
+        path: Path.Combine(logDirectory, "export_service_.log"),
         rollingInterval: RollingInterval.Day,
         retainedFileCountLimit: 30,
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
@@ -29,15 +32,52 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     Log.Information("=== R&G DB2 Export Service - Uruchamianie ===");
+    Log.Information("Katalog aplikacji: {BaseDirectory}", AppContext.BaseDirectory);
+    Log.Information("Katalog logów: {LogDirectory}", logDirectory);
 
     var builder = Host.CreateApplicationBuilder(args);
 
-    // Konfiguracja
+    // Konfiguracja - automatyczne wykrywanie ścieżki appsettings.json
+    var configPaths = new[]
+    {
+        @"C:\config\appsettings.json",
+        Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
+        @"C:\ProgramData\DB2Export\appsettings.json",
+        Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json")
+    };
+
+    string? resolvedConfigPath = null;
+    foreach (var path in configPaths)
+    {
+        if (File.Exists(path))
+        {
+            resolvedConfigPath = path;
+            Log.Information("Znaleziono konfigurację: {ConfigPath}", path);
+            break;
+        }
+    }
+
+    if (resolvedConfigPath == null)
+    {
+        Log.Warning("Nie znaleziono appsettings.json. Sprawdzono: {Paths}",
+            string.Join(", ", configPaths));
+        resolvedConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+    }
+
+    var configDirectory = Path.GetDirectoryName(resolvedConfigPath) ?? AppContext.BaseDirectory;
+
     builder.Configuration
-        .SetBasePath(Directory.GetCurrentDirectory())
-        .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+        .SetBasePath(configDirectory)
+        .AddJsonFile(Path.GetFileName(resolvedConfigPath), optional: false, reloadOnChange: true)
         .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
         .AddEnvironmentVariables();
+
+    Log.Information("========================================");
+    Log.Information("Konfiguracja załadowana:");
+    Log.Information("  Plik: {FileName}", Path.GetFileName(resolvedConfigPath));
+    Log.Information("  Ścieżka: {ConfigPath}", resolvedConfigPath);
+    Log.Information("  Katalog bazowy: {BaseDirectory}", configDirectory);
+    Log.Information("========================================");
 
     // Serilog
     builder.Services.AddSerilog();

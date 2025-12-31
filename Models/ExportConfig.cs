@@ -21,12 +21,9 @@ public class ExportConfig
     // Export Types Configuration
     /// <summary>
     /// Lista typów eksportu do wykonania
+    /// UWAGA: Musi być skonfigurowana w appsettings.json!
     /// </summary>
-    public List<ExportType> EnabledExportTypes { get; set; } = new()
-    {
-        ExportType.BramkiBasic,
-        ExportType.BramkiDetail
-    };
+    public List<ExportType> EnabledExportTypes { get; set; } = new();
 
     // Periodic Monitoring
     /// <summary>

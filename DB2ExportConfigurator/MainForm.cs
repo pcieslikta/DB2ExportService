@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -29,14 +30,32 @@ namespace DB2ExportConfigurator
 
             _logger.LogInformation("Inicjalizacja MainForm");
 
-
-            _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "DB2Export", "appsettings.json");
-
-            // Fallback to service directory
-            if (!File.Exists(_configPath))
+            // Automatyczne wykrywanie ścieżki konfiguracji (jak w Program.cs serwisu)
+            var configPaths = new[]
             {
-                _configPath = @"C:\Services\DB2Export\appsettings.json";
+                @"C:\config\appsettings.json",
+                Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DB2Export", "appsettings.json"),
+                @"C:\Services\DB2Export\appsettings.json"
+            };
+
+            _configPath = string.Empty;
+            foreach (var path in configPaths)
+            {
+                if (File.Exists(path))
+                {
+                    _configPath = path;
+                    _logger.LogInformation("Znaleziono konfigurację: {ConfigPath}", path);
+                    break;
+                }
+            }
+
+            // Jeśli nie znaleziono, użyj domyślnej lokalizacji (CommonApplicationData)
+            if (string.IsNullOrEmpty(_configPath))
+            {
+                _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "DB2Export", "appsettings.json");
+                _logger.LogWarning("Nie znaleziono konfiguracji. Użyję domyślnej: {ConfigPath}", _configPath);
             }
 
             InitializeComponent();
@@ -112,7 +131,8 @@ namespace DB2ExportConfigurator
                     _settings = JsonSerializer.Deserialize<ExportSettings>(json, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true,
-                        ReadCommentHandling = JsonCommentHandling.Skip
+                        ReadCommentHandling = JsonCommentHandling.Skip,
+                        Converters = { new JsonStringEnumConverter() }
                     }) ?? new ExportSettings();
 
                     PopulateForm();
@@ -177,10 +197,24 @@ namespace DB2ExportConfigurator
             chkEnableEmailNotifications.Checked = _settings.ExportConfig?.EnableEmailNotifications ?? false;
             txtNotificationEmail.Text = _settings.ExportConfig?.NotificationEmail ?? "";
 
+            // Periodic Monitoring & Triggers
+            chkEnablePeriodicMonitoring.Checked = _settings.ExportConfig?.EnablePeriodicMonitoring ?? false;
+            numMonitoringIntervalMinutes.Value = _settings.ExportConfig?.MonitoringIntervalMinutes ?? 15;
+            numMonitoringDaysBack.Value = _settings.ExportConfig?.MonitoringDaysBack ?? 7;
+            txtTriggerFolderPath.Text = _settings.ExportConfig?.TriggerFolderPath ?? @"C:\Services\DB2Export\Triggers";
+
+            // Enabled Export Types
+            var enabledTypes = _settings.ExportConfig?.EnabledExportTypes ?? new List<ExportType>();
+            chkExportTypeBramkiBasic.Checked = enabledTypes.Contains(ExportType.BramkiBasic);
+            chkExportTypeBramkiDetail.Checked = enabledTypes.Contains(ExportType.BramkiDetail);
+            chkExportTypePunktualnosc.Checked = enabledTypes.Contains(ExportType.Punktualnosc);
+
+#pragma warning disable CS0618 // Using obsolete members for backward compatibility
             // Vehicle Configuration
             cmbPojazdyMode.SelectedItem = _settings.VehicleConfig?.PojazdyMode ?? "lista";
             numPojazdyStart.Value = _settings.VehicleConfig?.PojazdyStart ?? 2209;
             numPojazdyEnd.Value = _settings.VehicleConfig?.PojazdyEnd ?? 2238;
+#pragma warning restore CS0618
 
             if (_settings.VehicleConfig?.PojazdyLista != null && _settings.VehicleConfig.PojazdyLista.Any())
             {
@@ -238,9 +272,44 @@ namespace DB2ExportConfigurator
                     EnableDetailedLogging = chkEnableDetailedLogging.Checked,
                     EnableMetrics = chkEnableMetrics.Checked,
                     EnableEmailNotifications = chkEnableEmailNotifications.Checked,
-                    NotificationEmail = string.IsNullOrWhiteSpace(txtNotificationEmail.Text) ? null : txtNotificationEmail.Text
+                    NotificationEmail = string.IsNullOrWhiteSpace(txtNotificationEmail.Text) ? null : txtNotificationEmail.Text,
+
+                    // Periodic Monitoring & Triggers
+                    EnablePeriodicMonitoring = chkEnablePeriodicMonitoring.Checked,
+                    MonitoringIntervalMinutes = (int)numMonitoringIntervalMinutes.Value,
+                    MonitoringDaysBack = (int)numMonitoringDaysBack.Value,
+                    TriggerFolderPath = string.IsNullOrWhiteSpace(txtTriggerFolderPath.Text)
+                        ? @"C:\Services\DB2Export\Triggers"
+                        : txtTriggerFolderPath.Text,
+
+                    // Enabled Export Types
+                    EnabledExportTypes = new List<ExportType>()
                 };
 
+                // Dodaj wybrane typy eksportu
+                if (chkExportTypeBramkiBasic.Checked)
+                    _settings.ExportConfig.EnabledExportTypes.Add(ExportType.BramkiBasic);
+                if (chkExportTypeBramkiDetail.Checked)
+                    _settings.ExportConfig.EnabledExportTypes.Add(ExportType.BramkiDetail);
+                if (chkExportTypePunktualnosc.Checked)
+                    _settings.ExportConfig.EnabledExportTypes.Add(ExportType.Punktualnosc);
+
+                // Walidacja: ostrzeżenie jeśli brak typów eksportu
+                if (_settings.ExportConfig.EnabledExportTypes.Count == 0)
+                {
+                    var result = MessageBox.Show(
+                        "Nie wybrano żadnego typu eksportu!\n\n" +
+                        "Serwis nie będzie wykonywał żadnych eksportów.\n" +
+                        "Czy na pewno chcesz zapisać?",
+                        "Ostrzeżenie",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+
+                    if (result == DialogResult.No)
+                        return;
+                }
+
+#pragma warning disable CS0618 // Using obsolete members for backward compatibility
                 _settings.VehicleConfig = new VehicleConfig
                 {
                     KodExportu = txtKodExportu.Text,
@@ -249,11 +318,13 @@ namespace DB2ExportConfigurator
                     PojazdyEnd = null,      // Deprecated - not used anymore
                     PojazdyLista = ParseVehicleList(txtPojazdyLista.Text)  // Uses hidden field with selected vehicles
                 };
+#pragma warning restore CS0618
 
                 var json = JsonSerializer.Serialize(_settings, new JsonSerializerOptions
                 {
                     WriteIndented = true,
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    Converters = { new JsonStringEnumConverter() }
                 });
 
                 // Ensure directory exists

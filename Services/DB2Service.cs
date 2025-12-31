@@ -35,13 +35,17 @@ public class DB2Service : IDB2Service
         var connectionString = $"Server={_db2Config.Hostname}:{_db2Config.Port};" +
                               $"Database={_db2Config.Database};" +
                               $"UID={_db2Config.User};" +
-                              $"PWD={_db2Config.Password};";
+                              $"PWD={_db2Config.Password};" +
+                              $"Authentication=SERVER;" +
+                              $"Connect Timeout=30;";
 
         // Connection string bez hasła do logów
         var safeConnectionString = $"Server={_db2Config.Hostname}:{_db2Config.Port};" +
                                    $"Database={_db2Config.Database};" +
                                    $"UID={_db2Config.User};" +
-                                   $"PWD=***;";
+                                   $"PWD=***;" +
+                                   $"Authentication=SERVER;" +
+                                   $"Connect Timeout=30;";
 
         _logger.LogInformation("Łączenie z bazą danych {Database} na {Hostname}:{Port}",
             _db2Config.Database, _db2Config.Hostname, _db2Config.Port);
@@ -110,12 +114,12 @@ public class DB2Service : IDB2Service
                 FROM ALASKA.RAPJAZDY rap
                 INNER JOIN ALASKA.PRZYSTAN prz ON prz.ID_PRZYST = rap.ID_PRZYST
                 INNER JOIN ALASKA.RE_POJAZDY poj ON poj.NB = rap.NB_WOZU
-                WHERE rap.DT_KARTY = DATE(@targetDate) - 1 DAY
+                WHERE rap.DT_KARTY = @targetDate
                 {vehicleCondition}
                 ORDER BY rap.NR_KURSOWK, rap.LP_KURSU, rap.LP_PRZYST";
 
             using var command = new DB2Command(sql, connection);
-            command.Parameters.Add("@targetDate", DB2Type.Date).Value = targetDate.Date;
+            command.Parameters.Add("@targetDate", DB2Type.Date).Value = targetDate.Date.AddDays(-1);
 
             _logger.LogInformation("Wykonywanie zapytania dla danych BRAMKI na dzień {Date}", targetDate.ToString("yyyy-MM-dd"));
 
@@ -197,12 +201,12 @@ public class DB2Service : IDB2Service
                     SELECT ID_RPJ, NR_DRZWI, SUM(CZLON_IN) BRAMKA_IN, SUM(CZLON_OUT) BRAMKA_OUT FROM ALASKA.DILAX90
                     GROUP BY ID_RPJ, NR_DRZWI
                 ) d90_3 ON d90_3.ID_RPJ = rap.RECNO_ AND d90_3.NR_DRZWI = 3
-                WHERE rap.DT_KARTY = DATE(@targetDate) - 1 DAY
+                WHERE rap.DT_KARTY = @targetDate
                 {vehicleCondition}
                 ORDER BY rap.NB_WOZU, rap.NR_KURSOWK, rap.LP_KURSU, rap.LP_PRZYST";
 
             using var command = new DB2Command(sql, connection);
-            command.Parameters.Add("@targetDate", DB2Type.Date).Value = targetDate.Date;
+            command.Parameters.Add("@targetDate", DB2Type.Date).Value = targetDate.Date.AddDays(-1);
 
             _logger.LogInformation("Wykonywanie zapytania dla danych BRAMKID na dzień {Date}", targetDate.ToString("yyyy-MM-dd"));
 
@@ -240,6 +244,7 @@ public class DB2Service : IDB2Service
         }, $"GetBramkiDetailData-{targetDate:yyyy-MM-dd}");
     }
 
+#pragma warning disable CS0618 // Using obsolete members for backward compatibility
     private string BuildVehicleCondition(VehicleConfig config)
     {
         if (config.PojazdyMode.ToLower() == "lista" && config.PojazdyLista.Any())
@@ -257,6 +262,7 @@ public class DB2Service : IDB2Service
         _logger.LogWarning("Brak filtra pojazdów - eksport dla wszystkich pojazdów");
         return string.Empty;
     }
+#pragma warning restore CS0618
 
     private string GetStringValue(IDataReader reader, string columnName)
     {
