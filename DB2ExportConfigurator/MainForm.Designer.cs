@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using DB2ExportService.Models;
 
 #pragma warning disable CS8669 // Nullable annotations in generated code
 namespace DB2ExportConfigurator
@@ -90,6 +91,8 @@ namespace DB2ExportConfigurator
         private DataGridView dgvVehicles;
         private CheckBox chkSelectAll;
         private Button btnApplySelection;
+        private Button btnLoadFromConfig;
+        private Button btnExportCSV;
 
         // Vehicles - Fetch from DB2
         private NumericUpDown numFetchNbFrom;
@@ -97,6 +100,13 @@ namespace DB2ExportConfigurator
         private CheckBox chkFetchActiveOnly;
         private Button btnFetchVehicles;
         private Label lblFetchStatus;
+
+        // Vehicles - Filter Controls (Tab 2)
+        private ComboBox cmbFilterZajezdnia;
+        private ComboBox cmbFilterTypPoj;
+        private CheckBox chkFilterBramki;
+        private TextBox txtFilterSearch;
+        private Label lblVehicleCount;
 
         // Service Controls
         private Label lblServiceStatus;
@@ -124,9 +134,9 @@ namespace DB2ExportConfigurator
 
             // Form settings
             this.Text = "DB2 Export Service - Konfigurator";
-            this.Size = new Size(1200, 800);
+            this.Size = new Size(1400, 900);  // Increased from 1200x800
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.MinimumSize = new Size(1000, 600);
+            this.MinimumSize = new Size(1200, 700);  // Increased from 1000x600
             this.Font = new Font("Segoe UI", 9F);
 
             // Header Panel
@@ -170,9 +180,13 @@ namespace DB2ExportConfigurator
                 Size = new Size(400, 30),
                 Font = new Font("Segoe UI", 16F, FontStyle.Bold),
                 ForeColor = Color.White,
-                AutoSize = false
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleLeft
             };
             headerPanel.Controls.Add(lblTitle);
+
+            // Calculate initial centered position
+            UpdateHeaderTitlePosition();
 
             // Toggle Sidebar Button
             btnToggleSidebar = new Button
@@ -231,7 +245,20 @@ namespace DB2ExportConfigurator
             this.Resize += (s, e) =>
             {
                 btnSave.Location = new Point(this.ClientSize.Width - btnSave.Width - 20, 12);
+                UpdateHeaderTitlePosition();
             };
+
+            // Update title position when header panel resizes
+            headerPanel.Resize += (s, e) => UpdateHeaderTitlePosition();
+        }
+
+        private void UpdateHeaderTitlePosition()
+        {
+            if (lblTitle != null && headerPanel != null)
+            {
+                // Left-align at 60px (after sidebar toggle button)
+                lblTitle.Location = new Point(60, 15);
+            }
         }
 
         private void CreateSidebar()
@@ -871,105 +898,40 @@ namespace DB2ExportConfigurator
             panelVehicles.Controls.Add(lblSection);
             y += 50;
 
-            // === OLD CONTROLS (Hidden for backward compatibility) ===
-            // Mode
-            cmbPojazdyMode = new ComboBox
-            {
-                Location = new Point(200, y),
-                Size = new Size(200, 25),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                Visible = false  // Hidden
-            };
-            cmbPojazdyMode.Items.AddRange(new object[] { "lista", "zakres" });
-            cmbPojazdyMode.SelectedIndex = 0;
-            panelVehicles.Controls.Add(cmbPojazdyMode);
+            // === HIDDEN OLD CONTROLS (backward compatibility) ===
+            cmbPojazdyMode = new ComboBox { Visible = false };
+            numPojazdyStart = new NumericUpDown { Visible = false };
+            numPojazdyEnd = new NumericUpDown { Visible = false };
+            txtPojazdyLista = new TextBox { Visible = false }; // Hidden, for config storage
+            panelVehicles.Controls.AddRange(new Control[] { cmbPojazdyMode, numPojazdyStart, numPojazdyEnd, txtPojazdyLista });
 
-            // Range controls (hidden)
-            numPojazdyStart = new NumericUpDown
+            // === NEW TAB CONTROL ===
+            var tabControl = new TabControl
             {
-                Location = new Point(110, y),
-                Size = new Size(120, 25),
-                Minimum = 1,
-                Maximum = 9999,
-                Value = 2209,
-                Visible = false
-            };
-            panelVehicles.Controls.Add(numPojazdyStart);
-
-            numPojazdyEnd = new NumericUpDown
-            {
-                Location = new Point(370, y),
-                Size = new Size(120, 25),
-                Minimum = 1,
-                Maximum = 9999,
-                Value = 2238,
-                Visible = false
-            };
-            panelVehicles.Controls.Add(numPojazdyEnd);
-
-            // Old list TextBox (hidden, used for config storage)
-            txtPojazdyLista = new TextBox
-            {
-                Location = new Point(15, y),
-                Size = new Size(670, 70),
-                Multiline = true,
-                ScrollBars = ScrollBars.Vertical,
-                Visible = false  // Hidden, used only for config storage
-            };
-            panelVehicles.Controls.Add(txtPojazdyLista);
-
-            // === NEW UNIFIED INTERFACE ===
-
-            // Unified Input Group
-            var grpUnifiedInput = new GroupBox
-            {
-                Text = "Wprowadź numery pojazdów (format: 100-120, 789, 900-905)",
                 Location = new Point(20, y),
-                Size = new Size(700, 120),
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
-            };
-
-            txtVehicleInput = new TextBox
-            {
-                Location = new Point(15, 30),
-                Size = new Size(550, 25),
+                Size = new Size(750, 300),
                 Font = new Font("Segoe UI", 10F)
             };
-            grpUnifiedInput.Controls.Add(txtVehicleInput);
 
-            btnParseAndFetch = new Button
-            {
-                Text = "Pobierz pojazdy",
-                Location = new Point(575, 27),
-                Size = new Size(110, 30),
-                BackColor = Color.FromArgb(52, 152, 219),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand
-            };
-            btnParseAndFetch.FlatAppearance.BorderSize = 0;
-            btnParseAndFetch.Click += BtnParseAndFetch_Click;
-            grpUnifiedInput.Controls.Add(btnParseAndFetch);
+            // TAB 1: Manual Input
+            var tabManual = new TabPage("Wybór ręczny");
+            CreateManualInputTab(tabManual);
+            tabControl.TabPages.Add(tabManual);
 
-            lblParseStatus = new Label
-            {
-                Location = new Point(15, 65),
-                Size = new Size(670, 40),
-                ForeColor = Color.Gray,
-                Font = new Font("Segoe UI", 9F)
-            };
-            grpUnifiedInput.Controls.Add(lblParseStatus);
+            // TAB 2: Database Selection
+            var tabDatabase = new TabPage("Wybór z bazy");
+            CreateDatabaseSelectionTab(tabDatabase);
+            tabControl.TabPages.Add(tabDatabase);
 
-            panelVehicles.Controls.Add(grpUnifiedInput);
-            y += 130;
+            panelVehicles.Controls.Add(tabControl);
+            y += 310;
 
-            // Vehicle Selection Grid
+            // === SHARED VEHICLE GRID (used by both tabs) ===
             var grpVehicleGrid = new GroupBox
             {
-                Text = "Wybór pojazdów",
+                Text = "Wybrane pojazdy",
                 Location = new Point(20, y),
-                Size = new Size(700, 420),
+                Size = new Size(950, 560),  // Increased width and height for buttons and legend
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold)
             };
 
@@ -980,55 +942,163 @@ namespace DB2ExportConfigurator
                 Size = new Size(150, 20),
                 Font = new Font("Segoe UI", 9F)
             };
-            chkSelectAll.CheckedChanged += (s, e) => {
-                if (dgvVehicles != null && dgvVehicles.Rows.Count > 0)
-                {
-                    foreach (DataGridViewRow row in dgvVehicles.Rows)
-                        row.Cells["Selected"].Value = chkSelectAll.Checked;
-                }
-            };
+            chkSelectAll.CheckedChanged += ChkSelectAll_CheckedChanged;
             grpVehicleGrid.Controls.Add(chkSelectAll);
 
+            // Label showing vehicle count
+            lblVehicleCount = new Label
+            {
+                Text = "Pojazdy: 0",
+                Location = new Point(200, 28),
+                Size = new Size(200, 20),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(52, 73, 94)
+            };
+            grpVehicleGrid.Controls.Add(lblVehicleCount);
+
+            // DataGridView - Modern, native .NET 8 control
             dgvVehicles = new DataGridView
             {
                 Location = new Point(15, 55),
-                Size = new Size(670, 300),
+                Size = new Size(920, 380),
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersVisible = false,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
                 MultiSelect = false,
-                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                ReadOnly = false,
-                RowHeadersVisible = false,
+                ReadOnly = false,  // Allow checkbox editing
+                AutoGenerateColumns = false,
+                BorderStyle = BorderStyle.Fixed3D,
                 BackgroundColor = Color.White,
-                BorderStyle = BorderStyle.Fixed3D
+                GridColor = Color.FromArgb(224, 224, 224),
+                EnableHeadersVisualStyles = false,
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    BackColor = Color.FromArgb(240, 240, 240),
+                    ForeColor = Color.FromArgb(52, 73, 94),
+                    Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                    Alignment = DataGridViewContentAlignment.MiddleCenter
+                },
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    SelectionBackColor = Color.FromArgb(52, 152, 219),
+                    SelectionForeColor = Color.White,
+                    Font = new Font("Segoe UI", 9F)
+                },
+                ColumnHeadersHeight = 32
             };
 
-            // Define columns
+            // Checkbox column
             dgvVehicles.Columns.Add(new DataGridViewCheckBoxColumn
             {
                 Name = "Selected",
                 HeaderText = "✓",
                 Width = 40,
-                ReadOnly = false
+                ReadOnly = false,
+                FalseValue = false,
+                TrueValue = true
             });
-            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "NB", HeaderText = "NB", ReadOnly = true, Width = 60 });
-            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "NR", HeaderText = "Nr rej.", ReadOnly = true });
-            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "TYP_POJ", HeaderText = "Typ", ReadOnly = true, Width = 60 });
-            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "ZAJEZDNIA", HeaderText = "Zajezdnia", ReadOnly = true, Width = 80 });
-            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "MA_BRAMKI", HeaderText = "Bramki", ReadOnly = true, Width = 70 });
-            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn { Name = "WGOTOWOSCI", HeaderText = "Aktywny", ReadOnly = true, Width = 70 });
+
+            // NB column
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "NB",
+                HeaderText = "NB",
+                DataPropertyName = "NB",
+                Width = 80,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter },
+                ReadOnly = true
+            });
+
+            // Nr rej column
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "NR",
+                HeaderText = "Nr rej.",
+                DataPropertyName = "NR",
+                Width = 110,
+                ReadOnly = true
+            });
+
+            // Typ column
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "TYP_POJ",
+                HeaderText = "Typ",
+                DataPropertyName = "TypPoj",
+                Width = 70,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter },
+                ReadOnly = true
+            });
+
+            // Zajezdnia column
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "ZAJEZDNIA",
+                HeaderText = "Zajezdnia",
+                DataPropertyName = "Zajezdnia",
+                Width = 100,
+                DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter },
+                ReadOnly = true
+            });
+
+            // MA_BRAMKI column (icons)
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "MA_BRAMKI",
+                HeaderText = "Bramki",
+                DataPropertyName = "MaBramki",
+                Width = 75,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter,
+                    Font = new Font("Segoe UI", 12F, FontStyle.Bold)
+                },
+                ReadOnly = true
+            });
+
+            // WGOTOWOSCI column (icons)
+            dgvVehicles.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                Name = "WGOTOWOSCI",
+                HeaderText = "Aktywny",
+                DataPropertyName = "WGotowosci",
+                Width = 75,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Alignment = DataGridViewContentAlignment.MiddleCenter,
+                    Font = new Font("Segoe UI", 12F, FontStyle.Bold)
+                },
+                ReadOnly = true
+            });
+
+            // Event handlers
+            dgvVehicles.CellValueChanged += DgvVehicles_CellValueChanged;
+            dgvVehicles.CurrentCellDirtyStateChanged += DgvVehicles_CurrentCellDirtyStateChanged;
+            dgvVehicles.CellFormatting += DgvVehicles_CellFormatting;
 
             grpVehicleGrid.Controls.Add(dgvVehicles);
 
+            // Parse status label (warnings) - positioned below grid
+            lblParseStatus = new Label
+            {
+                Location = new Point(15, 440),
+                Size = new Size(900, 20),
+                ForeColor = Color.Gray,
+                Font = new Font("Segoe UI", 9F)
+            };
+            grpVehicleGrid.Controls.Add(lblParseStatus);
+
+            // Buttons row - positioned below parse status (wider buttons for readability)
             btnApplySelection = new Button
             {
-                Text = "Zastosuj wybór",
-                Location = new Point(560, 365),
-                Size = new Size(125, 35),
+                Text = "💾 Zastosuj wybór",
+                Location = new Point(15, 465),
+                Size = new Size(200, 40),
                 BackColor = Color.FromArgb(39, 174, 96),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand
             };
@@ -1036,71 +1106,255 @@ namespace DB2ExportConfigurator
             btnApplySelection.Click += BtnApplySelection_Click;
             grpVehicleGrid.Controls.Add(btnApplySelection);
 
-            panelVehicles.Controls.Add(grpVehicleGrid);
-            y += 430;
+            // Button: Załaduj z configu
+            btnLoadFromConfig = new Button
+            {
+                Text = "🔄 Załaduj z pliku",
+                Location = new Point(225, 465),
+                Size = new Size(200, 40),
+                BackColor = Color.FromArgb(155, 89, 182),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnLoadFromConfig.FlatAppearance.BorderSize = 0;
+            btnLoadFromConfig.Click += BtnLoadFromConfig_Click;
+            grpVehicleGrid.Controls.Add(btnLoadFromConfig);
 
-            // === FETCH VEHICLES FROM DB2 ===
+            // Button: Eksportuj CSV
+            btnExportCSV = new Button
+            {
+                Text = "📄 Eksportuj CSV",
+                Location = new Point(435, 465),
+                Size = new Size(200, 40),
+                BackColor = Color.FromArgb(52, 152, 219),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnExportCSV.FlatAppearance.BorderSize = 0;
+            btnExportCSV.Click += BtnExportCSV_Click;
+            grpVehicleGrid.Controls.Add(btnExportCSV);
+
+            // Color legend - positioned below buttons
+            var lblLegend = new Label
+            {
+                Text = "Legenda: ● ConfigMatch (bold + zielone) - w config i zaznaczony  " +
+                       "● ConfigMismatch (czerwone) - w config ale NIE zaznaczony  " +
+                       "● ManualAdd (niebieskie) - zaznaczony ale NIE w config  " +
+                       "● NotInDatabase (pomarańczowe) - w config ale brak w DB  " +
+                       "● Ikony: ✓ = TAK (zielony), ✗ = NIE (szary/czerwony)",
+                Location = new Point(15, 510),
+                Size = new Size(900, 40),
+                ForeColor = Color.Gray,
+                Font = new Font("Segoe UI", 8F, FontStyle.Italic),
+                AutoSize = false,
+                TextAlign = ContentAlignment.TopLeft
+            };
+            grpVehicleGrid.Controls.Add(lblLegend);
+
+            panelVehicles.Controls.Add(grpVehicleGrid);
+
+            contentPanel.Controls.Add(panelVehicles);
+        }
+
+        private void CreateManualInputTab(TabPage tab)
+        {
+            tab.Padding = new Padding(15);
+            tab.BackColor = Color.FromArgb(252, 253, 253);
+
+            var lblInfo = new Label
+            {
+                Text = "Wprowadź numery pojazdów oddzielone przecinkami lub zakresy (np. 100-120, 789, 900-905)",
+                Location = new Point(15, 15),
+                Size = new Size(680, 40),
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = Color.Gray
+            };
+            tab.Controls.Add(lblInfo);
+
+            txtVehicleInput = new TextBox
+            {
+                Location = new Point(15, 60),
+                Size = new Size(520, 25),
+                Font = new Font("Segoe UI", 10F),
+                PlaceholderText = "Przykład: 2209-2238, 3001, 3015-3020"
+            };
+            tab.Controls.Add(txtVehicleInput);
+
+            btnParseAndFetch = new Button
+            {
+                Text = "Pobierz pojazdy",
+                Location = new Point(545, 57),
+                Size = new Size(140, 30),
+                BackColor = Color.FromArgb(52, 152, 219),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand
+            };
+            btnParseAndFetch.FlatAppearance.BorderSize = 0;
+            btnParseAndFetch.Click += BtnParseAndFetch_Click;
+            tab.Controls.Add(btnParseAndFetch);
+
+            var lblHelp = new Label
+            {
+                Text = "💡 Wskazówka: Możesz używać zakresów (100-120) lub pojedynczych numerów (789)",
+                Location = new Point(15, 100),
+                Size = new Size(680, 40),
+                Font = new Font("Segoe UI", 8F, FontStyle.Italic),
+                ForeColor = Color.FromArgb(127, 140, 141)
+            };
+            tab.Controls.Add(lblHelp);
+        }
+
+        private void CreateDatabaseSelectionTab(TabPage tab)
+        {
+            tab.Padding = new Padding(15);
+            tab.BackColor = Color.FromArgb(252, 253, 253);
+
+            int y = 15;
+
+            // === FILTER: ZAJEZDNIA ===
+            var lblZajezdnia = new Label
+            {
+                Text = "Zajezdnia:",
+                Location = new Point(15, y),
+                Size = new Size(80, 20),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+            tab.Controls.Add(lblZajezdnia);
+
+            cmbFilterZajezdnia = new ComboBox
+            {
+                Location = new Point(100, y - 3),
+                Size = new Size(150, 25),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9F)
+            };
+            cmbFilterZajezdnia.Items.Add("(wszystkie)");
+            cmbFilterZajezdnia.SelectedIndex = 0;
+            tab.Controls.Add(cmbFilterZajezdnia);
+
+            // === FILTER: TYP POJAZDU ===
+            var lblTypPoj = new Label
+            {
+                Text = "Typ:",
+                Location = new Point(270, y),
+                Size = new Size(40, 20),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+            tab.Controls.Add(lblTypPoj);
+
+            cmbFilterTypPoj = new ComboBox
+            {
+                Location = new Point(315, y - 3),
+                Size = new Size(130, 25),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9F)
+            };
+            cmbFilterTypPoj.Items.Add("(wszystkie)");
+            cmbFilterTypPoj.SelectedIndex = 0;
+            tab.Controls.Add(cmbFilterTypPoj);
+
+            y += 40;
+
+            // === FILTER: TYLKO Z BRAMKAMI ===
+            chkFilterBramki = new CheckBox
+            {
+                Text = "Tylko z bramkami (MA_BRAMKI='Y')",
+                Location = new Point(15, y),
+                Size = new Size(250, 25),
+                Font = new Font("Segoe UI", 9F),
+                Checked = false
+            };
+            tab.Controls.Add(chkFilterBramki);
+
+            y += 35;
+
+            // === FILTER: TEXT SEARCH ===
+            var lblSearch = new Label
+            {
+                Text = "Szukaj (NB lub NR):",
+                Location = new Point(15, y),
+                Size = new Size(130, 20),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+            tab.Controls.Add(lblSearch);
+
+            txtFilterSearch = new TextBox
+            {
+                Location = new Point(150, y - 3),
+                Size = new Size(295, 25),
+                Font = new Font("Segoe UI", 9F),
+                PlaceholderText = "Wpisz numer pojazdu..."
+            };
+            txtFilterSearch.TextChanged += TxtFilterSearch_TextChanged; // Real-time filtering
+            tab.Controls.Add(txtFilterSearch);
+
+            y += 40;
+
+            // === FETCH FROM DATABASE SECTION ===
+            y += 5;
+
             var grpFetchVehicles = new GroupBox
             {
-                Text = "Pobierz pojazdy z bazy DB2",
-                Location = new Point(20, y),
-                Size = new Size(700, 200),
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+                Text = "Pobierz z bazy danych",
+                Location = new Point(15, y),
+                Size = new Size(670, 80),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
             };
+            tab.Controls.Add(grpFetchVehicles);
 
-            var lblFetchHint = new Label
-            {
-                Text = "Filtruj pojazdy z bazy danych i automatycznie wypełnij listę",
-                Location = new Point(20, 25),
-                Size = new Size(650, 20),
-                ForeColor = Color.Gray,
-                Font = new Font("Segoe UI", 9F, FontStyle.Italic)
-            };
-            grpFetchVehicles.Controls.Add(lblFetchHint);
+            int grpY = 25;
 
             var lblNbFrom = new Label
             {
                 Text = "NB od:",
-                Location = new Point(20, 55),
-                Size = new Size(120, 20),
+                Location = new Point(15, grpY),
+                Size = new Size(60, 20),
                 Font = new Font("Segoe UI", 9F)
             };
             grpFetchVehicles.Controls.Add(lblNbFrom);
 
             numFetchNbFrom = new NumericUpDown
             {
-                Location = new Point(150, 52),
-                Size = new Size(120, 25),
+                Location = new Point(75, grpY - 3),
+                Size = new Size(90, 25),
                 Minimum = 0,
                 Maximum = 9999,
-                Value = 0
+                Value = 0,
+                Font = new Font("Segoe UI", 9F)
             };
             grpFetchVehicles.Controls.Add(numFetchNbFrom);
 
             var lblNbTo = new Label
             {
-                Text = "NB do:",
-                Location = new Point(290, 55),
-                Size = new Size(60, 20),
+                Text = "do:",
+                Location = new Point(175, grpY),
+                Size = new Size(30, 20),
                 Font = new Font("Segoe UI", 9F)
             };
             grpFetchVehicles.Controls.Add(lblNbTo);
 
             numFetchNbTo = new NumericUpDown
             {
-                Location = new Point(360, 52),
-                Size = new Size(120, 25),
+                Location = new Point(205, grpY - 3),
+                Size = new Size(90, 25),
                 Minimum = 0,
                 Maximum = 9999,
-                Value = 0
+                Value = 0,
+                Font = new Font("Segoe UI", 9F)
             };
             grpFetchVehicles.Controls.Add(numFetchNbTo);
 
             chkFetchActiveOnly = new CheckBox
             {
-                Text = "Tylko aktywne pojazdy",
-                Location = new Point(20, 90),
-                Size = new Size(250, 25),
+                Text = "Tylko aktywne",
+                Location = new Point(310, grpY),
+                Size = new Size(120, 25),
                 Checked = true,
                 Font = new Font("Segoe UI", 9F)
             };
@@ -1108,12 +1362,12 @@ namespace DB2ExportConfigurator
 
             btnFetchVehicles = new Button
             {
-                Text = "📥 Pobierz pojazdy z DB2",
-                Location = new Point(20, 125),
-                Size = new Size(220, 45),
+                Text = "📥 Pobierz",
+                Location = new Point(445, grpY - 5),
+                Size = new Size(130, 35),
                 BackColor = Color.FromArgb(52, 152, 219),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand
             };
@@ -1121,20 +1375,24 @@ namespace DB2ExportConfigurator
             btnFetchVehicles.Click += BtnFetchVehicles_Click;
             grpFetchVehicles.Controls.Add(btnFetchVehicles);
 
+            grpY += 35;
+
             lblFetchStatus = new Label
             {
                 Text = "Gotowy do pobrania",
-                Location = new Point(250, 135),
-                Size = new Size(430, 30),
+                Location = new Point(15, grpY),
+                Size = new Size(640, 20),
                 ForeColor = Color.Gray,
-                Font = new Font("Segoe UI", 9F)
+                Font = new Font("Segoe UI", 8.5F)
             };
             grpFetchVehicles.Controls.Add(lblFetchStatus);
 
-            panelVehicles.Controls.Add(grpFetchVehicles);
-            y += 210;
+            y += 90;
 
-            contentPanel.Controls.Add(panelVehicles);
+            // Wire up filter change events
+            cmbFilterZajezdnia.SelectedIndexChanged += OnFilterChanged;
+            cmbFilterTypPoj.SelectedIndexChanged += OnFilterChanged;
+            chkFilterBramki.CheckedChanged += OnFilterChanged;
         }
 
         private void CreateServicePanel()
@@ -1389,6 +1647,13 @@ namespace DB2ExportConfigurator
                 case "vehicles":
                     lblTitle.Text = "🚌 Konfiguracja pojazdów";
                     panelVehicles.Visible = true;
+
+                    // AUTO-LOAD VEHICLES ON FIRST SHOW
+                    if (_vehiclesPanelFirstLoad)
+                    {
+                        _vehiclesPanelFirstLoad = false;
+                        _ = AutoLoadVehiclesAsync(); // Fire and forget
+                    }
                     break;
                 case "service":
                     lblTitle.Text = "⚙️ Zarządzanie serwisem";
@@ -1396,6 +1661,9 @@ namespace DB2ExportConfigurator
                     UpdateServiceStatus();
                     break;
             }
+
+            // Recenter title after text change
+            UpdateHeaderTitlePosition();
         }
 
         private void Sidebar_NavigationChanged(object? sender, string tag)
